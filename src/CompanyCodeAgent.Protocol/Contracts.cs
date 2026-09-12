@@ -57,7 +57,9 @@ public enum AgentToolKind
     GetGitBranch,
     CreateGitCommit,
     GetGitStagedDiff,
-    GetDiagnostics
+    GetDiagnostics,
+    ExportAudit,
+    ApplyMultiPatch
 }
 
 public sealed record ToolCall(

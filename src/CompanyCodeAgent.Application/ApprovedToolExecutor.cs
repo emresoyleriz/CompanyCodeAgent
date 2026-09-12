@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using CompanyCodeAgent.Domain;
 using CompanyCodeAgent.Protocol;
 using CompanyCodeAgent.Tools;
@@ -17,8 +18,8 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
         {
             (projectPolicy ?? ProjectPolicy.Load(boundary)).EnsureAllowed(call.Kind.ToString());
             string? checkpointId = null;
-            if (storage != null && call.Kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile)
-                checkpointId = storage.CreateCheckpoint(sessionId, boundary.RootPath, [boundary.EnsureInsideWorkspace(Required(call, "path"))]);
+            if (storage != null && call.Kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile or AgentToolKind.ApplyMultiPatch)
+                checkpointId = storage.CreateCheckpoint(sessionId, boundary.RootPath, GetCheckpointPaths(call));
             var output = call.Kind switch
             {
                 AgentToolKind.ListFiles => string.Join(Environment.NewLine, tools.ListFiles()),
@@ -28,6 +29,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
                 AgentToolKind.SearchText => string.Join(Environment.NewLine, await tools.SearchTextAsync(Required(call, "query"), cancellationToken: cancellationToken)),
                 AgentToolKind.WriteFile => await WriteAsync(call, cancellationToken),
                 AgentToolKind.ApplyPatch => await PatchAsync(call, cancellationToken),
+                AgentToolKind.ApplyMultiPatch => await MultiPatchAsync(call, cancellationToken),
                 AgentToolKind.DeleteFile => await DeleteAsync(call),
                 AgentToolKind.RunCommand or AgentToolKind.BuildSolution or AgentToolKind.RunTests => await RunCommandAsync(call, cancellationToken),
                 AgentToolKind.GetGitDiff => await RunGitDiffAsync(cancellationToken),
@@ -43,6 +45,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
                 AgentToolKind.ListGitWorktrees => await new GitWorktreeManager(boundary).ListAsync(cancellationToken),
                 AgentToolKind.CreateGitWorktree => await new GitWorktreeManager(boundary).CreateAsync(Required(call, "branch"), cancellationToken),
                 AgentToolKind.ListAuditEvents => ListAuditEvents(sessionId),
+                AgentToolKind.ExportAudit => ExportAudit(call, sessionId),
                 AgentToolKind.WebFetch => await new WebFetchTool().FetchAsync(Required(call, "url"), cancellationToken),
                 AgentToolKind.GetGitBranch => await RunGitAsync("branch --show-current", cancellationToken),
                 AgentToolKind.CreateGitCommit => await CreateGitCommitAsync(call, cancellationToken),
@@ -51,7 +54,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
             };
             var fullOutput = checkpointId == null ? output : $"Checkpoint: {checkpointId}\n{output}";
             storage?.WriteAudit(sessionId, "tool_executed", $"{call.Kind}: {fullOutput}");
-            return new ToolResult(call.Id, true, fullOutput, call.Kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile or AgentToolKind.RestoreCheckpoint);
+            return new ToolResult(call.Id, true, fullOutput, call.Kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.ApplyMultiPatch or AgentToolKind.DeleteFile or AgentToolKind.RestoreCheckpoint);
         }
         catch (Exception ex) { storage?.WriteAudit(sessionId, "tool_failed", $"{call.Kind}: {ex.Message}"); return new ToolResult(call.Id, false, ex.Message); }
     }
@@ -78,6 +81,33 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
     {
         await tools.ApplyExactReplacementAsync(Required(call, "path"), Required(call, "expected"), Required(call, "replacement"), cancellationToken);
         return "Patch uygulandı.";
+    }
+
+    private async Task<string> MultiPatchAsync(ToolCall call, CancellationToken cancellationToken)
+    {
+        var patches = ParseMultiPatches(call);
+        await tools.ApplyExactReplacementsTransactionAsync(patches, cancellationToken);
+        return $"{patches.Count} dosyada transaction patch uygulandı.";
+    }
+
+    private IReadOnlyList<string> GetCheckpointPaths(ToolCall call)
+    {
+        if (call.Kind != AgentToolKind.ApplyMultiPatch) return [boundary.EnsureInsideWorkspace(Required(call, "path"))];
+        return ParseMultiPatches(call).Select(patch => boundary.EnsureInsideWorkspace(patch.Path)).ToArray();
+    }
+
+    private static IReadOnlyList<TextReplacement> ParseMultiPatches(ToolCall call)
+    {
+        using var document = JsonDocument.Parse(Required(call, "patchesJson"));
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new ArgumentException("patchesJson bir JSON dizi olmalıdır.");
+        var patches = new List<TextReplacement>();
+        foreach (var item in document.RootElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("path", out var path) || !item.TryGetProperty("expected", out var expected) || !item.TryGetProperty("replacement", out var replacement))
+                throw new ArgumentException("Her çoklu patch path, expected ve replacement içermelidir.");
+            patches.Add(new TextReplacement(path.GetString() ?? string.Empty, expected.GetString() ?? string.Empty, replacement.GetString() ?? string.Empty));
+        }
+        return patches;
     }
 
     private async Task<string> DeleteAsync(ToolCall call)
@@ -214,13 +244,26 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
         return events.Count == 0 ? "Audit kaydı yok." : string.Join(Environment.NewLine, events.Select(item => $"{item.CreatedAt.LocalDateTime:g} | {item.EventType} | {item.Detail}"));
     }
 
+    private string ExportAudit(ToolCall call, string sessionId)
+    {
+        if (storage == null) throw new InvalidOperationException("Audit deposu kullanılabilir değil.");
+        var relativePath = Required(call, "path");
+        var fullPath = boundary.EnsureInsideWorkspace(relativePath);
+        if (!string.Equals(Path.GetExtension(fullPath), ".json", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Audit dışa aktarma hedefi .json uzantılı olmalıdır.");
+        var events = storage.ReadAuditEvents(sessionId).Select(item => new { timestamp = item.CreatedAt, type = item.EventType, detail = item.Detail });
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        File.WriteAllText(fullPath, JsonSerializer.Serialize(events, new JsonSerializerOptions { WriteIndented = true }));
+        return "Audit dışa aktarıldı: " + relativePath;
+    }
+
     private static string Required(ToolCall call, string name) => call.Arguments.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
         ? value : throw new ArgumentException($"Araç parametresi zorunlu: {name}");
 
     private static bool RequiresExplicitApproval(AgentToolKind kind) => kind is
-        AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile or
+        AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.ApplyMultiPatch or AgentToolKind.DeleteFile or
         AgentToolKind.RunCommand or AgentToolKind.BuildSolution or AgentToolKind.RunTests or
-        AgentToolKind.RestoreCheckpoint or AgentToolKind.McpListTools or AgentToolKind.McpCallTool or AgentToolKind.CreateGitWorktree or AgentToolKind.WebFetch or AgentToolKind.CreateGitCommit;
+        AgentToolKind.RestoreCheckpoint or AgentToolKind.McpListTools or AgentToolKind.McpCallTool or AgentToolKind.CreateGitWorktree or AgentToolKind.WebFetch or AgentToolKind.CreateGitCommit or AgentToolKind.ExportAudit;
 
     private static string LimitOutput(string value) => value.Length <= MaxCommandOutputCharacters
         ? value

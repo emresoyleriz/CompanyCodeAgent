@@ -16,6 +16,9 @@ internal sealed class AgentSettings
     public string ActModel { get; set; } = string.Empty;
     public int MaxAgentSteps { get; set; } = 5;
     public int TimeoutMinutes { get; set; } = 10;
+    public string AgentProfile { get; set; } = "Genel";
+    public Dictionary<string, string> ConversationIds { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, List<string>> ConversationHistory { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
     public string ProtectedApiKey { get; set; } = string.Empty;
 
     public string GetApiKey()

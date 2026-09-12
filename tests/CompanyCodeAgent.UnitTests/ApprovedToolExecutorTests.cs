@@ -55,6 +55,26 @@ public sealed class ApprovedToolExecutorTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_root, "blocked.txt")));
     }
 
+    [Fact]
+    public async Task Audit_Export_Requires_Approval_And_Writes_Json_Inside_Workspace()
+    {
+        Directory.CreateDirectory(_root);
+        var boundary = new WorkspaceBoundary(_root);
+        var storage = new AgentStorage(Path.Combine(_root, "agent.db"));
+        storage.WriteAudit("session", "tool_executed", "ReadFile: Sample.cs");
+        var executor = new ApprovedToolExecutor(new WorkspaceTools(boundary), boundary, new CommandPolicy(), storage);
+        var call = new ToolCall("export", AgentToolKind.ExportAudit, new Dictionary<string, string> { ["path"] = "artifacts/audit.json" });
+
+        var rejected = await executor.ExecuteAsync(call, approved: false, sessionId: "session");
+        Assert.False(rejected.Success);
+        Assert.False(File.Exists(Path.Combine(_root, "artifacts", "audit.json")));
+
+        var exported = await executor.ExecuteAsync(call, approved: true, sessionId: "session");
+        Assert.True(exported.Success);
+        var json = await File.ReadAllTextAsync(Path.Combine(_root, "artifacts", "audit.json"));
+        Assert.Contains("tool_executed", json);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

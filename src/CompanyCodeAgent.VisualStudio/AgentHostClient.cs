@@ -17,6 +17,12 @@ internal sealed class AgentHostClient
     private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     private static readonly object HostStartGate = new object();
     private static bool _hostStartAttempted;
+    private readonly string _sessionId;
+
+    public AgentHostClient(string sessionId = null)
+    {
+        _sessionId = sessionId;
+    }
 
     public async Task<HostToolResult> ExecuteAsync(string workspacePath, int toolKind, IDictionary<string, string> arguments, bool requiresApproval, bool approved)
     {
@@ -42,7 +48,18 @@ internal sealed class AgentHostClient
         return result.Output;
     }
 
-    private static async Task<HostToolResult> ExecuteOperationAsync(string workspacePath, string operation, string role, string content)
+    public async Task SaveUsageAsync(string workspacePath, string model, int tokens)
+    {
+        await ExecuteOperationAsync(workspacePath, "save_usage", model, tokens.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    public async Task<string> ReadUsageAsync(string workspacePath)
+    {
+        var result = await ExecuteOperationAsync(workspacePath, "read_usage", null, null);
+        return result.Output;
+    }
+
+    private async Task<HostToolResult> ExecuteOperationAsync(string workspacePath, string operation, string role, string content)
     {
         try { return await SendOperationAsync(workspacePath, operation, role, content, 250); }
         catch (TimeoutException) { }
@@ -51,7 +68,7 @@ internal sealed class AgentHostClient
         return await SendOperationAsync(workspacePath, operation, role, content, 5000);
     }
 
-    private static async Task<HostToolResult> SendAsync(string workspacePath, int toolKind, IDictionary<string, string> arguments, bool requiresApproval, bool approved, int timeoutMilliseconds)
+    private async Task<HostToolResult> SendAsync(string workspacePath, int toolKind, IDictionary<string, string> arguments, bool requiresApproval, bool approved, int timeoutMilliseconds)
     {
         using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await pipe.ConnectAsync(timeoutMilliseconds);
@@ -64,7 +81,7 @@ internal sealed class AgentHostClient
             WorkspacePath = workspacePath,
             ToolCall = new { Id = requestId, Kind = toolKind, Arguments = arguments, RequiresApproval = requiresApproval },
             Approved = approved,
-            SessionId = CreateSessionId(workspacePath)
+            SessionId = ResolveSessionId(workspacePath)
         };
         await writer.WriteLineAsync(Json.Serialize(request));
         var line = await reader.ReadLineAsync();
@@ -77,7 +94,7 @@ internal sealed class AgentHostClient
             result.TryGetValue("wasApplied", out var applied) && Convert.ToBoolean(applied));
     }
 
-    private static async Task<HostToolResult> SendOperationAsync(string workspacePath, string operation, string role, string content, int timeoutMilliseconds)
+    private async Task<HostToolResult> SendOperationAsync(string workspacePath, string operation, string role, string content, int timeoutMilliseconds)
     {
         using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await pipe.ConnectAsync(timeoutMilliseconds);
@@ -90,7 +107,7 @@ internal sealed class AgentHostClient
             WorkspacePath = workspacePath,
             ToolCall = new { Id = requestId, Kind = 0, Arguments = new Dictionary<string, string>(), RequiresApproval = false },
             Approved = true,
-            SessionId = CreateSessionId(workspacePath),
+            SessionId = ResolveSessionId(workspacePath),
             Operation = operation,
             MessageRole = role,
             MessageContent = content
@@ -118,12 +135,14 @@ internal sealed class AgentHostClient
         await Task.Delay(600);
     }
 
-    private static string CreateSessionId(string workspacePath)
+    internal static string CreateSessionId(string workspacePath)
     {
         using var hash = SHA256.Create();
         var bytes = hash.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(workspacePath).ToUpperInvariant()));
         return BitConverter.ToString(bytes, 0, 12).Replace("-", string.Empty);
     }
+
+    private string ResolveSessionId(string workspacePath) => string.IsNullOrWhiteSpace(_sessionId) ? CreateSessionId(workspacePath) : _sessionId;
 }
 
 internal sealed class HostToolResult

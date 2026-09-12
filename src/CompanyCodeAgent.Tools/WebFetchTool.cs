@@ -13,8 +13,7 @@ public sealed class WebFetchTool
         if (!Uri.TryCreate(url, UriKind.Absolute, out var current)) throw new ArgumentException("Geçerli mutlak URL zorunludur.", nameof(url));
         for (var redirects = 0; redirects <= 3; redirects++)
         {
-            EnsureSafeUri(current);
-            await EnsureResolvesToPublicAddressAsync(current, cancellationToken);
+            await EnsurePublicEndpointAsync(current, cancellationToken);
             using var request = new HttpRequestMessage(HttpMethod.Get, current);
             request.Headers.UserAgent.ParseAdd("CompanyCodeAgent/0.1");
             using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -49,6 +48,12 @@ public sealed class WebFetchTool
         var host = uri.Host;
         if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Yerel ağ hedefleri engellendi.");
         if (IPAddress.TryParse(host, out var address) && IsPrivate(address)) throw new UnauthorizedAccessException("Özel IP hedefleri engellendi.");
+    }
+
+    public static async Task EnsurePublicEndpointAsync(Uri uri, CancellationToken cancellationToken = default)
+    {
+        EnsureSafeUri(uri);
+        await EnsureResolvesToPublicAddressAsync(uri, cancellationToken);
     }
 
     private static async Task EnsureResolvesToPublicAddressAsync(Uri uri, CancellationToken cancellationToken)

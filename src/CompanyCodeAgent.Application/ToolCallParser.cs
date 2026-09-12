@@ -34,6 +34,7 @@ public static class ToolCallParser
 
     private static bool RequiresApproval(AgentToolKind kind) => kind is AgentToolKind.WriteFile
         or AgentToolKind.ApplyPatch
+        or AgentToolKind.ApplyMultiPatch
         or AgentToolKind.DeleteFile
         or AgentToolKind.RunCommand
         or AgentToolKind.BuildSolution
@@ -43,7 +44,8 @@ public static class ToolCallParser
         or AgentToolKind.McpCallTool
         or AgentToolKind.CreateGitWorktree
         or AgentToolKind.WebFetch
-        or AgentToolKind.CreateGitCommit;
+        or AgentToolKind.CreateGitCommit
+        or AgentToolKind.ExportAudit;
 
     private static string? ExtractJson(string value)
     {

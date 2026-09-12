@@ -72,6 +72,40 @@ public sealed class WorkspaceTools(WorkspaceBoundary boundary)
         await WriteFileAsync(path, current.Replace(expectedText, replacement, StringComparison.Ordinal), cancellationToken);
     }
 
+    public async Task ApplyExactReplacementsTransactionAsync(IEnumerable<TextReplacement> replacements, CancellationToken cancellationToken = default)
+    {
+        var requested = replacements.Take(21).ToArray();
+        if (requested.Length == 0 || requested.Length > 20) throw new ArgumentException("Çoklu patch 1 ile 20 dosya arasında olmalıdır.", nameof(replacements));
+        if (requested.Any(item => string.IsNullOrEmpty(item.Expected))) throw new ArgumentException("Çoklu patch içindeki expected değeri boş olamaz.", nameof(replacements));
+
+        var prepared = new List<(string Path, string Original, string Updated)>();
+        foreach (var item in requested)
+        {
+            var safePath = boundary.EnsureInsideWorkspace(item.Path);
+            SensitivePathPolicy.EnsureAllowed(safePath);
+            if (prepared.Any(existing => string.Equals(existing.Path, safePath, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("Aynı dosya bir transaction içinde birden fazla kez yer alamaz.", nameof(replacements));
+            var original = await ReadFileAsync(item.Path, cancellationToken);
+            var matches = original.Split(item.Expected, StringSplitOptions.None).Length - 1;
+            if (matches != 1) throw new InvalidOperationException($"Patch güvenle uygulanamadı: {item.Path} içindeki beklenen metin {matches} kez bulundu.");
+            prepared.Add((safePath, original, original.Replace(item.Expected, item.Replacement, StringComparison.Ordinal)));
+        }
+
+        try
+        {
+            foreach (var item in prepared)
+                await File.WriteAllTextAsync(item.Path, item.Updated, cancellationToken);
+        }
+        catch
+        {
+            foreach (var item in prepared)
+            {
+                try { await File.WriteAllTextAsync(item.Path, item.Original, CancellationToken.None); }
+                catch { /* Best-effort rollback; original error is retained. */ }
+            }
+            throw;
+        }
+    }
+
     public Task DeleteFileAsync(string path)
     {
         var safePath = boundary.EnsureInsideWorkspace(path);
@@ -88,3 +122,5 @@ public sealed class WorkspaceTools(WorkspaceBoundary boundary)
             && !path.Contains("\\.vs\\", StringComparison.OrdinalIgnoreCase);
     }
 }
+
+public sealed record TextReplacement(string Path, string Expected, string Replacement);

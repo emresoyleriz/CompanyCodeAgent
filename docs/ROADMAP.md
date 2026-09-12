@@ -52,15 +52,15 @@ Bu liste Cline ve GitHub Copilot'un herkese açık IDE iş akışlarının clean
 | Çok turlu chat ve streaming | Kısmi | Kalıcı oturum geçmişi, durdur, yeniden dene, token görünürlüğü ve süre/adım sınırı var; konuşma dalı, export ve maliyet hesabı eksik |
 | Plan → Act | Kısmi | Plan'da salt-okunur keşif ve ayrı Plan/Act model seçimi var; yapılandırılmış plan devri eksik |
 | Interactive / Autopilot | Kısmi | Araç bazlı onay, güvenlik politikasıyla sınırlı Autopilot ve kesin adım/süre sınırı var; kalıcı kural-temelli otomatik onay profilleri eksik |
-| Dosya değişiklikleri | Kısmi | Tek dosya için VS diff görünümü ve Accept/Reject var; bölüm bazlı seçim ve çoklu dosya transaction eksik |
+| Dosya değişiklikleri | Kısmi | Tek dosya için VS diff görünümü ve Accept/Reject, en fazla 20 dosyada atomik exact-patch transaction ve ortak checkpoint var; bölüm bazlı seçim eksik |
 | Checkpoint | Kısmi | Her değişiklik öncesi snapshot, zaman çizelgesi, karşılaştır/geri al, görev bağlamı geri alma |
 | IDE bağlamı | Kısmi | Aktif dosya/seçim ve `get_diagnostics` ile güncel Error List var; build/test çıktısı ve açık editör envanteri eksik |
-| Kod inceleme | Eksik | Branch/staged/unstaged diff üzerinde satır-bağlantılı bulgu ve öneri uygulama |
+| Kod inceleme | Kısmi | Branch/staged/unstaged diff üzerinde önem ve dosya:satır biçimli bulgular var; satıra tıklayıp editöre gitme ve öneriyi tek tık uygulama eksik |
 | Kurallar / prompt / custom agents | Kısmi | Kural dosyaları, `/deep-planning`, proje prompt/skill dosyaları ve kaynak denetimli özel ajan profilleri var; yol-deseni kuralları eksik |
 | Model sağlayıcıları | Kısmi | OpenAI-uyumlu akış yanında sağlayıcı profilleri, Plan/Act model ayrımı, kullanım/maliyet kaydı |
-| MCP / haricî araç | Kısmi | İzinli stdio MCP, güvenli HTTPS web fetch, görsel ek ve allowlist/onay/audit var; HTTP MCP/OAuth ve ayar arayüzü eksik |
+| MCP / haricî araç | Kısmi | İzinli stdio ve HTTPS MCP, güvenli HTTPS web fetch, görsel ek ve allowlist/onay/audit var; OAuth ve ayar arayüzü eksik |
 | Git ve görev yönetimi | Kısmi | Diff/status/staged diff, görev listesi, izole worktree ve yalnızca kullanıcıca stage edilmiş dosyalarla commit var; PR hazırlığı ve uzak sağlayıcı entegrasyonu eksik |
-| Güvenlik ve kurum | Kısmi | Araç bloklama politikası, secret redaction ve audit görünümü var; merkezi dağıtım, proxy/sertifika ve imzalama eksik |
+| Güvenlik ve kurum | Kısmi | Araç bloklama politikası, secret redaction, audit görünümü ve kullanıcı onaylı yerel JSON export var; merkezi dağıtım, proxy/sertifika ve imzalama eksik |
 
 ## Doğrulama standardı
 

@@ -51,9 +51,25 @@ Proje politikası için isteğe bağlı `.company-agent/policy.json` oluşturabi
 
 Engellenen araçlar kullanıcı onayı veya Autopilot seçimiyle de çalıştırılamaz.
 
+## Audit dışa aktarma
+
+Agent, `export_audit({"path":"artifacts/audit.json"})` ile mevcut workspace içindeki `.json` hedefine oturum audit kaydını dışa aktarabilir. Bu işlem açık kullanıcı onayı ister; kayıtlar zaten secret-redacted biçimde saklanır ve araç herhangi bir uzak hedefe veri göndermez.
+
+## Kullanım
+
+Paneldeki **Kullanım** düğmesi, mevcut solution oturumunda model bazında kaydedilen token tüketimini gösterir. Token kaydı yerel agent veritabanında tutulur. Sağlayıcıların fiyatlandırması farklı olduğundan bu görünüm maliyet tahmini değil, ölçülen token kullanımını verir.
+
+## Sohbet dalları
+
+Paneldeki **Yeni sohbet** düğmesi aktif solution için yeni, ayrı bir konuşma oturumu başlatır. Önceki sohbet, görevler, checkpoint’ler, audit ve kullanım kayıtları silinmez. **Sohbetler** düğmesiyle önceki bir dal seçilip tekrar açılabilir; **Geçmiş** düğmesi yalnızca aktif sohbet dalını gösterir.
+
+## Çoklu dosya değişiklikleri
+
+Agent, `apply_multi_patch` ile en fazla 20 mevcut dosyada bir transaction olarak exact patch uygulayabilir. Çağrıdaki her öğe `path`, `expected` ve `replacement` içerir. Tüm `expected` metinleri önce tekil olarak doğrulanır; biri uyuşmazsa hiçbir dosya değiştirilmez. İşlem tek kullanıcı onayı ve tüm etkilenen dosyaları kapsayan tek checkpoint ile yürür.
+
 ## MCP sunucuları
 
-İsteğe bağlı stdio MCP sunucularını proje kökündeki `.company-agent/mcp.json` dosyasında açıkça tanımlayın. Her çağrı araç bazlı onay ister ve `allowedTools` dışında çağrı yapılamaz:
+İsteğe bağlı stdio veya HTTPS MCP sunucularını proje kökündeki `.company-agent/mcp.json` dosyasında açıkça tanımlayın. Her çağrı araç bazlı onay ister ve `allowedTools` dışında çağrı yapılamaz:
 
 ```json
 {
@@ -68,7 +84,21 @@ Engellenen araçlar kullanıcı onayı veya Autopilot seçimiyle de çalıştır
 }
 ```
 
-Agent önce `mcp_list_tools`, ardından yalnızca izinli araçlar için `mcp_call_tool` isteyebilir. Boş `allowedTools` listesi hiçbir aracın çağrılmasına izin vermez.
+Uzak MCP için `command` yerine HTTPS `url` kullanın:
+
+```json
+{
+  "servers": [
+    {
+      "name": "team-docs",
+      "url": "https://mcp.example.com/mcp",
+      "allowedTools": ["search_docs", "get_page"]
+    }
+  ]
+}
+```
+
+Agent önce `mcp_list_tools`, ardından yalnızca izinli araçlar için `mcp_call_tool` isteyebilir. Boş `allowedTools` listesi hiçbir aracın çağrılmasına izin vermez. HTTPS hedefleri genel HTTPS adresi olmalıdır; OAuth veya kalıcı kimlik bilgisi akışları henüz yapılandırma yüzeyine eklenmemiştir.
 
 ## Prompt ve skill dosyaları
 
@@ -79,6 +109,10 @@ Sohbete `/deep-planning <istek>` yazarak yerleşik derin planlamayı çağırın
 - `.company-agent/skills/security-review/SKILL.md`
 
 Dosya adı yalnızca harf, sayı, `_` ve `-` içerebilir; 64 KB üzerindeki dosyalar bağlama alınmaz.
+
+## Kod inceleme
+
+**Tools → Company Code Agent → Review Changes** komutu branch ile staged/unstaged Git diff'ini Plan modunda inceler. Bulgular önem seviyesi ve `dosya:satır` konumuyla döner; değişiklikten kaynaklanan doğrulanabilir hata, güvenlik açığı veya test eksikliği yoksa açıkça `BULGU YOK` sonucu verir.
 
 ## Özel ajan profilleri
 

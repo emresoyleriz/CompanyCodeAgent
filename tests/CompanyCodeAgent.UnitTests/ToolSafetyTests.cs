@@ -30,6 +30,38 @@ public sealed class ToolSafetyTests : IDisposable
         Assert.Contains("One.cs", match);
     }
 
+    [Fact]
+    public async Task Multi_File_Patch_Updates_All_Files_Atomically()
+    {
+        Directory.CreateDirectory(_root);
+        var tools = new WorkspaceTools(new WorkspaceBoundary(_root));
+        await tools.WriteFileAsync("One.cs", "class BeforeOne { }");
+        await tools.WriteFileAsync("Two.cs", "class BeforeTwo { }");
+
+        await tools.ApplyExactReplacementsTransactionAsync([
+            new TextReplacement("One.cs", "BeforeOne", "AfterOne"),
+            new TextReplacement("Two.cs", "BeforeTwo", "AfterTwo")]);
+
+        Assert.Contains("AfterOne", await tools.ReadFileAsync("One.cs"));
+        Assert.Contains("AfterTwo", await tools.ReadFileAsync("Two.cs"));
+    }
+
+    [Fact]
+    public async Task Multi_File_Patch_Does_Not_Change_Anything_When_Any_Patch_Is_Invalid()
+    {
+        Directory.CreateDirectory(_root);
+        var tools = new WorkspaceTools(new WorkspaceBoundary(_root));
+        await tools.WriteFileAsync("One.cs", "class BeforeOne { }");
+        await tools.WriteFileAsync("Two.cs", "class BeforeTwo { }");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => tools.ApplyExactReplacementsTransactionAsync([
+            new TextReplacement("One.cs", "BeforeOne", "AfterOne"),
+            new TextReplacement("Two.cs", "Missing", "AfterTwo")]));
+
+        Assert.Contains("BeforeOne", await tools.ReadFileAsync("One.cs"));
+        Assert.Contains("BeforeTwo", await tools.ReadFileAsync("Two.cs"));
+    }
+
     [Theory]
     [InlineData("rm -rf .")]
     [InlineData("Remove-Item -Recurse .")]

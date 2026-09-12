@@ -53,6 +53,8 @@ public sealed class AgentToolWindowControl : UserControl
         _agentProfile.Items.Add("Genel");
         _agentProfile.SelectedIndex = 0;
         RefreshAgentProfiles(VisualStudioContextProvider.GetWorkspacePath());
+        if (_agentProfile.Items.Cast<object>().OfType<string>().Any(profile => string.Equals(profile, _settings.AgentProfile, StringComparison.OrdinalIgnoreCase)))
+            _agentProfile.SelectedItem = _settings.AgentProfile;
         ApplyTheme();
         var root = new Grid { Margin = new Thickness(10), Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -83,10 +85,20 @@ public sealed class AgentToolWindowControl : UserControl
         models.Click += LoadModelsClicked; panel.Children.Add(models);
         var history = StyledButton("Geçmiş", 70); history.Margin = new Thickness(4);
         history.Click += HistoryClicked; panel.Children.Add(history);
+        var newChat = StyledButton("Yeni sohbet", 85); newChat.Margin = new Thickness(4);
+        newChat.Click += NewChatClicked; panel.Children.Add(newChat);
+        var conversations = StyledButton("Sohbetler", 75); conversations.Margin = new Thickness(4);
+        conversations.Click += ConversationsClicked; panel.Children.Add(conversations);
         var tasks = StyledButton("Görevler", 70); tasks.Margin = new Thickness(4);
         tasks.Click += TasksClicked; panel.Children.Add(tasks);
+        var checkpoints = StyledButton("Checkpoint'ler", 95); checkpoints.Margin = new Thickness(4);
+        checkpoints.Click += CheckpointsClicked; panel.Children.Add(checkpoints);
+        var restore = StyledButton("Geri al…", 72); restore.Margin = new Thickness(4);
+        restore.Click += RestoreCheckpointClicked; panel.Children.Add(restore);
         var audit = StyledButton("Audit", 60); audit.Margin = new Thickness(4);
-        audit.Click += AuditClicked; panel.Children.Add(audit); return panel;
+        audit.Click += AuditClicked; panel.Children.Add(audit);
+        var usage = StyledButton("Kullanım", 72); usage.Margin = new Thickness(4);
+        usage.Click += UsageClicked; panel.Children.Add(usage); return panel;
     }
 
     private void RefreshAgentProfiles(string workspacePath)
@@ -244,8 +256,13 @@ public sealed class AgentToolWindowControl : UserControl
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 toolResult = await HandleToolCallAsync(assistantResponse, planMode, autopilot);
             }
-            Write("\n\n", Brushes.White); SetStatus(_cancellation.IsCancellationRequested ? "Durduruldu." : totalTokens > 0 ? "Tamamlandı · " + totalTokens + " token" : "Tamamlandı.");
+            var hitStepLimit = !_cancellation.IsCancellationRequested && !string.IsNullOrWhiteSpace(toolResult);
+            if (hitStepLimit)
+                Write("\n[Agent adım sınırına ulaştı. Görev tamamlanmış sayılmadı; devam etmek için Tekrarla'yı kullanın.]\n", Brushes.OrangeRed);
+            Write("\n", Brushes.White);
+            SetStatus(_cancellation.IsCancellationRequested ? "Durduruldu." : hitStepLimit ? "Adım sınırı nedeniyle durdu." : totalTokens > 0 ? "Tamamlandı · " + totalTokens + " token" : "Tamamlandı.", hitStepLimit);
             if (!_cancellation.IsCancellationRequested) await TrySaveMessageAsync(workspacePath, "assistant", assistantResponse);
+            if (!_cancellation.IsCancellationRequested && totalTokens > 0) await TrySaveUsageAsync(workspacePath, selectedModel, totalTokens);
         }
         catch (OperationCanceledException) { SetStatus("Durduruldu."); }
         catch (Exception ex) { Write("\n[Hata] " + ex.Message + "\n\n", Brushes.OrangeRed); SetStatus("İstek başarısız.", true); }
@@ -265,9 +282,19 @@ public sealed class AgentToolWindowControl : UserControl
 
     private void HistoryClicked(object sender, RoutedEventArgs e) => StartSafely(ShowHistoryAsync, "Geçmiş alınamadı.");
 
+    private void NewChatClicked(object sender, RoutedEventArgs e) => StartSafely(StartNewChatAsync, "Yeni sohbet başlatılamadı.");
+
+    private void ConversationsClicked(object sender, RoutedEventArgs e) => StartSafely(SwitchConversationAsync, "Sohbet değiştirilemedi.");
+
     private void TasksClicked(object sender, RoutedEventArgs e) => StartSafely(ShowTasksAsync, "Görevler alınamadı.");
 
+    private void CheckpointsClicked(object sender, RoutedEventArgs e) => StartSafely(ShowCheckpointsAsync, "Checkpoint'ler alınamadı.");
+
+    private void RestoreCheckpointClicked(object sender, RoutedEventArgs e) => StartSafely(RestoreCheckpointAsync, "Checkpoint geri yüklenemedi.");
+
     private void AuditClicked(object sender, RoutedEventArgs e) => StartSafely(ShowAuditAsync, "Audit alınamadı.");
+
+    private void UsageClicked(object sender, RoutedEventArgs e) => StartSafely(ShowUsageAsync, "Kullanım alınamadı.");
 
     private async Task ShowHistoryAsync()
     {
@@ -280,28 +307,208 @@ public sealed class AgentToolWindowControl : UserControl
     {
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
         var workspace = VisualStudioContextProvider.GetWorkspacePath();
-        var result = await new AgentHostClient().ExecuteAsync(workspace, 20, new Dictionary<string, string>(), false, true);
+        var result = await GetHostClient(workspace).ExecuteAsync(workspace, 20, new Dictionary<string, string>(), false, true);
         Write("\nGörevler\n" + result.Output + "\n\n", result.Success ? Brushes.LightSteelBlue : Brushes.OrangeRed);
+    }
+
+    private async Task ShowCheckpointsAsync()
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var workspace = VisualStudioContextProvider.GetWorkspacePath();
+        var result = await GetHostClient(workspace).ExecuteAsync(workspace, 14, new Dictionary<string, string>(), false, true);
+        Write("\nCheckpoint'ler\n" + result.Output + "\n\n", result.Success ? Brushes.LightSteelBlue : Brushes.OrangeRed);
+        if (result.Success) SetStatus("Geri almak için Geri al… düğmesini kullanın.");
+    }
+
+    private async Task RestoreCheckpointAsync()
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var checkpointId = PromptForCheckpointId();
+        if (string.IsNullOrWhiteSpace(checkpointId)) return;
+        if (MessageBox.Show("Bu checkpoint'ten sonraki dosya değişiklikleri geri alınacak. Devam edilsin mi?", "Company Code Agent — Checkpoint geri al", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            SetStatus("Checkpoint geri alma iptal edildi.");
+            return;
+        }
+        var workspace = VisualStudioContextProvider.GetWorkspacePath();
+        var result = await GetHostClient(workspace).ExecuteAsync(workspace, 13, new Dictionary<string, string> { ["checkpointId"] = checkpointId }, true, true);
+        Write("\nCheckpoint geri al\n" + result.Output + "\n\n", result.Success ? Brushes.LightGreen : Brushes.OrangeRed);
+        SetStatus(result.Success ? "Checkpoint geri yüklendi." : "Checkpoint geri yüklenemedi.", !result.Success);
+    }
+
+    private static string PromptForCheckpointId()
+    {
+        var value = new TextBox { MinWidth = 360, Margin = new Thickness(10, 4, 10, 10) };
+        var dialog = new Window
+        {
+            Title = "Checkpoint geri al",
+            Width = 430,
+            Height = 155,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Content = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "Checkpoint kimliğini girin:", Margin = new Thickness(10, 10, 10, 0) },
+                    value,
+                    new Button { Content = "Devam", IsDefault = true, Width = 90, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(10) }
+                }
+            }
+        };
+        var submit = ((StackPanel)dialog.Content).Children[2] as Button;
+        submit.Click += (_, _) => dialog.DialogResult = true;
+        return dialog.ShowDialog() == true ? value.Text.Trim() : string.Empty;
     }
 
     private async Task ShowAuditAsync()
     {
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
         var workspace = VisualStudioContextProvider.GetWorkspacePath();
-        var result = await new AgentHostClient().ExecuteAsync(workspace, 23, new Dictionary<string, string>(), false, true);
+        var result = await GetHostClient(workspace).ExecuteAsync(workspace, 23, new Dictionary<string, string>(), false, true);
         Write("\nAudit\n" + result.Output + "\n\n", result.Success ? Brushes.LightSteelBlue : Brushes.OrangeRed);
+    }
+
+    private async Task ShowUsageAsync()
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var workspace = VisualStudioContextProvider.GetWorkspacePath();
+        var usage = await GetHostClient(workspace).ReadUsageAsync(workspace);
+        var items = Json.DeserializeObject(usage) as object[];
+        if (items == null || items.Length == 0)
+        {
+            Write("\nKullanım\nBu oturum için kaydedilmiş token kullanımı yok.\n\n", Brushes.LightSteelBlue);
+            return;
+        }
+        var lines = new List<string>();
+        var total = 0;
+        foreach (var raw in items)
+        {
+            if (raw is not Dictionary<string, object> item) continue;
+            var model = item.TryGetValue("model", out var rawModel) ? rawModel?.ToString() ?? "bilinmiyor" : "bilinmiyor";
+            var tokens = item.TryGetValue("tokens", out var rawTokens) ? Convert.ToInt32(rawTokens) : 0;
+            total += tokens;
+            lines.Add(model + " · " + tokens + " token");
+        }
+        Write("\nKullanım\n" + string.Join("\n", lines) + "\nToplam: " + total + " token\n\n", Brushes.LightSteelBlue);
     }
 
     private async Task<string> TryReadHistoryAsync(string workspacePath)
     {
-        try { return Limit(await new AgentHostClient().ReadMessagesAsync(workspacePath)); }
+        try { return Limit(await GetHostClient(workspacePath).ReadMessagesAsync(workspacePath)); }
         catch { return string.Empty; }
     }
 
-    private static async Task TrySaveMessageAsync(string workspacePath, string role, string content)
+    private async Task StartNewChatAsync()
     {
-        try { await new AgentHostClient().SaveMessageAsync(workspacePath, role, content); }
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var workspace = VisualStudioContextProvider.GetWorkspacePath();
+        var key = NormalizeWorkspaceKey(workspace);
+        var current = GetConversationId(workspace);
+        var history = GetConversationHistory(key);
+        if (!history.Contains(current, StringComparer.OrdinalIgnoreCase)) history.Add(current);
+        var next = Guid.NewGuid().ToString("N");
+        history.Add(next);
+        _settings.ConversationIds[key] = next;
+        SaveSettings();
+        _conversation.Document.Blocks.Clear();
+        _lastPrompt = string.Empty;
+        Write("Yeni sohbet başlatıldı. Bu konuşmanın geçmişi önceki sohbetten ayrıdır.\n\n", Brushes.LightSteelBlue);
+        SetStatus("Yeni sohbet hazır.");
+    }
+
+    private async Task SwitchConversationAsync()
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var workspace = VisualStudioContextProvider.GetWorkspacePath();
+        var key = NormalizeWorkspaceKey(workspace);
+        var current = GetConversationId(workspace);
+        var history = GetConversationHistory(key);
+        if (!history.Contains(current, StringComparer.OrdinalIgnoreCase)) history.Add(current);
+        var selected = PromptForConversationId(history, current);
+        if (string.IsNullOrWhiteSpace(selected) || string.Equals(selected, current, StringComparison.OrdinalIgnoreCase)) return;
+        _settings.ConversationIds[key] = selected;
+        SaveSettings();
+        _conversation.Document.Blocks.Clear();
+        Write("Sohbet dalı değiştirildi. Geçmişi görmek için Geçmiş düğmesini kullanın.\n\n", Brushes.LightSteelBlue);
+        SetStatus("Sohbet dalı değiştirildi.");
+    }
+
+    private static string PromptForConversationId(IEnumerable<string> conversationIds, string current)
+    {
+        var list = new ListBox { MinWidth = 430, Height = 160, Margin = new Thickness(10, 4, 10, 8) };
+        foreach (var id in conversationIds.Distinct(StringComparer.OrdinalIgnoreCase))
+            list.Items.Add((string.Equals(id, current, StringComparison.OrdinalIgnoreCase) ? "Aktif · " : "      ") + id);
+        if (list.Items.Count == 0) return string.Empty;
+        list.SelectedIndex = 0;
+        var dialog = new Window
+        {
+            Title = "Sohbet dalı seç",
+            Width = 500,
+            Height = 280,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Content = new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock { Text = "Açmak istediğiniz sohbet dalını seçin:", Margin = new Thickness(10, 10, 10, 0) },
+                    list,
+                    new Button { Content = "Aç", IsDefault = true, Width = 80, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(10, 0, 10, 10) }
+                }
+            }
+        };
+        var submit = ((StackPanel)dialog.Content).Children[2] as Button;
+        submit.Click += (_, _) => dialog.DialogResult = true;
+        if (dialog.ShowDialog() != true || list.SelectedItem == null) return string.Empty;
+        var item = list.SelectedItem.ToString();
+        return item.Substring(item.IndexOf('·') >= 0 ? item.IndexOf('·') + 2 : 6).Trim();
+    }
+
+    private AgentHostClient GetHostClient(string workspacePath) => new AgentHostClient(GetConversationId(workspacePath));
+
+    private string GetConversationId(string workspacePath)
+    {
+        _settings.ConversationIds ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var key = NormalizeWorkspaceKey(workspacePath);
+        if (!_settings.ConversationIds.TryGetValue(key, out var sessionId) || string.IsNullOrWhiteSpace(sessionId))
+        {
+            sessionId = AgentHostClient.CreateSessionId(workspacePath);
+            _settings.ConversationIds[key] = sessionId;
+            AgentSettingsStore.Save(_settings);
+        }
+        var history = GetConversationHistory(key);
+        if (!history.Contains(sessionId, StringComparer.OrdinalIgnoreCase))
+        {
+            history.Add(sessionId);
+            AgentSettingsStore.Save(_settings);
+        }
+        return sessionId;
+    }
+
+    private List<string> GetConversationHistory(string workspaceKey)
+    {
+        _settings.ConversationHistory ??= new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        if (!_settings.ConversationHistory.TryGetValue(workspaceKey, out var history) || history == null)
+        {
+            history = new List<string>();
+            _settings.ConversationHistory[workspaceKey] = history;
+        }
+        return history;
+    }
+
+    private static string NormalizeWorkspaceKey(string workspacePath) => Path.GetFullPath(workspacePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
+
+    private async Task TrySaveMessageAsync(string workspacePath, string role, string content)
+    {
+        try { await GetHostClient(workspacePath).SaveMessageAsync(workspacePath, role, content); }
         catch { /* Chat remains available if local history storage is temporarily unavailable. */ }
+    }
+
+    private async Task TrySaveUsageAsync(string workspacePath, string model, int tokens)
+    {
+        try { await GetHostClient(workspacePath).SaveUsageAsync(workspacePath, model, tokens); }
+        catch { /* Usage history must not interrupt an otherwise successful agent response. */ }
     }
 
     private string GetSelectedModel(bool planMode)
@@ -390,7 +597,7 @@ public sealed class AgentToolWindowControl : UserControl
             var approved = autopilot || !requiresApproval || MessageBox.Show(BuildApprovalPrompt(toolName?.ToString() ?? "Araç", arguments), "Company Code Agent Önizleme ve Onay", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             var workspacePath = VisualStudioContextProvider.GetWorkspacePath();
-            var result = await new AgentHostClient().ExecuteAsync(workspacePath, toolKind, arguments, requiresApproval, approved);
+            var result = await GetHostClient(workspacePath).ExecuteAsync(workspacePath, toolKind, arguments, requiresApproval, approved);
             Write("\n[Tool " + toolName + "] " + result.Output + "\n", result.Success ? Brushes.LightGreen : Brushes.OrangeRed);
             return result.Output;
         }
@@ -449,13 +656,15 @@ public sealed class AgentToolWindowControl : UserControl
             case "creategitcommit": kind = 26; requiresApproval = true; return true;
             case "getgitstageddiff": kind = 27; return true;
             case "getdiagnostics": kind = 28; return true;
+            case "exportaudit": kind = 29; requiresApproval = true; return true;
+            case "applymultipatch": kind = 30; requiresApproval = true; return true;
             default: kind = -1; return false;
         }
     }
 
     private static bool IsPlanSafeTool(int toolKind) => toolKind == 0 || toolKind == 1 || toolKind == 2 || toolKind == 3 || toolKind == 4 || toolKind == 11 || toolKind == 12 || toolKind == 14 || toolKind == 15 || toolKind == 18 || toolKind == 19 || toolKind == 20 || toolKind == 21 || toolKind == 23 || toolKind == 25 || toolKind == 27 || toolKind == 28;
 
-    private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), get_diagnostics({}), write_file({path,content}), apply_patch({path,expected,replacement}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_staged_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), web_fetch({url}). MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. Kod incelemesinde hem get_git_diff hem get_git_staged_diff ve get_diagnostics kullan. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
+    private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), get_diagnostics({}), write_file({path,content}), apply_patch({path,expected,replacement}), apply_multi_patch({patchesJson}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_staged_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), export_audit({path}), web_fetch({url}). apply_multi_patch için patchesJson, path/expected/replacement alanlı en fazla 20 farklı dosyadan oluşan JSON dizisidir; tüm patch'ler doğrulanır, biri başarısızsa değişiklikler geri alınır. MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. export_audit yalnızca workspace içindeki .json dosyasına kullanıcı onayıyla yazar. Kod incelemesinde hem get_git_diff hem get_git_staged_diff ve get_diagnostics kullan. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
 
     private static string BuildApprovalPrompt(string toolName, IReadOnlyDictionary<string, string> arguments)
     {
@@ -486,11 +695,15 @@ public sealed class AgentToolWindowControl : UserControl
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string relativePath)
     {
-        var baseUri = new Uri(_endpoint.Text.Trim().TrimEnd('/') + "/", UriKind.Absolute); var request = new HttpRequestMessage(method, new Uri(baseUri, relativePath));
+        var baseUri = new Uri(_endpoint.Text.Trim().TrimEnd('/') + "/", UriKind.Absolute);
+        var localEndpoint = baseUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || baseUri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) || baseUri.Host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+        if (!baseUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) && !localEndpoint)
+            throw new InvalidOperationException("Uzak model endpoint'i HTTPS olmalıdır. HTTP yalnızca localhost için kabul edilir.");
+        var request = new HttpRequestMessage(method, new Uri(baseUri, relativePath));
         var key = _apiKey.Password.Trim(); if (!string.IsNullOrWhiteSpace(key)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key); return request;
     }
 
-    private void SaveSettings() { _settings.Endpoint = _endpoint.Text.Trim(); _settings.Model = _models.Text.Trim(); _settings.UseSeparateModeModels = _separateModels.IsChecked == true; _settings.PlanModel = _planModel.Text.Trim(); _settings.ActModel = _actModel.Text.Trim(); _settings.MaxAgentSteps = GetMaxAgentSteps(); _settings.TimeoutMinutes = GetTimeoutMinutes(); _settings.SetApiKey(_apiKey.Password); AgentSettingsStore.Save(_settings); }
+    private void SaveSettings() { _settings.Endpoint = _endpoint.Text.Trim(); _settings.Model = _models.Text.Trim(); _settings.UseSeparateModeModels = _separateModels.IsChecked == true; _settings.PlanModel = _planModel.Text.Trim(); _settings.ActModel = _actModel.Text.Trim(); _settings.AgentProfile = _agentProfile.SelectedItem as string ?? "Genel"; _settings.MaxAgentSteps = GetMaxAgentSteps(); _settings.TimeoutMinutes = GetTimeoutMinutes(); _settings.SetApiKey(_apiKey.Password); AgentSettingsStore.Save(_settings); }
     private void Write(string value, Brush color) { _conversation.Foreground = color; _conversation.AppendText(value); _conversation.ScrollToEnd(); }
     private void SetStatus(string value, bool error = false) { _status.Text = value; _status.Foreground = error ? Brushes.OrangeRed : Brushes.Gray; }
 

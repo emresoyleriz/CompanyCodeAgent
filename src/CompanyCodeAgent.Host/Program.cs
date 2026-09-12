@@ -40,6 +40,17 @@ while (true)
             var messages = storage.ReadMessages(sessionId).Select(message => new { role = message.Role, content = message.Content });
             result = new ToolResult(request.RequestId, true, JsonSerializer.Serialize(messages, json));
         }
+        else if (string.Equals(request.Operation, "save_usage", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(request.MessageRole) || !int.TryParse(request.MessageContent, out var tokens) || tokens < 0) throw new InvalidDataException("Model adı ve geçerli token sayısı zorunludur.");
+            storage.RecordUsage(sessionId, request.MessageRole, tokens);
+            result = new ToolResult(request.RequestId, true, "Kullanım kaydedildi.");
+        }
+        else if (string.Equals(request.Operation, "read_usage", StringComparison.OrdinalIgnoreCase))
+        {
+            var usage = storage.ReadUsage(sessionId).Select(item => new { model = item.Model, tokens = item.Tokens, createdAt = item.CreatedAt });
+            result = new ToolResult(request.RequestId, true, JsonSerializer.Serialize(usage, json));
+        }
         else
         {
             var boundary = new WorkspaceBoundary(request.WorkspacePath);

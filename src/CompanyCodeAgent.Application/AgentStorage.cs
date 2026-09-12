@@ -191,6 +191,32 @@ public sealed class AgentStorage
         return events;
     }
 
+    public void RecordUsage(string sessionId, string model, int tokens)
+    {
+        if (tokens < 0) throw new ArgumentOutOfRangeException(nameof(tokens));
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO usage_events (session_id, model, tokens, created_at) VALUES ($session, $model, $tokens, $created);";
+        command.Parameters.AddWithValue("$session", sessionId);
+        command.Parameters.AddWithValue("$model", Redact(model));
+        command.Parameters.AddWithValue("$tokens", tokens);
+        command.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    public IReadOnlyList<UsageItem> ReadUsage(string sessionId, int limit = 100)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT model, tokens, created_at FROM usage_events WHERE session_id = $session ORDER BY id DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$session", sessionId);
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        var items = new List<UsageItem>();
+        while (reader.Read()) items.Add(new UsageItem(reader.GetString(0), reader.GetInt32(1), DateTimeOffset.Parse(reader.GetString(2))));
+        return items;
+    }
+
     private void Initialize()
     {
         using var connection = Open();
@@ -200,6 +226,7 @@ public sealed class AgentStorage
             CREATE TABLE IF NOT EXISTS session_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS checkpoint_files (id INTEGER PRIMARY KEY AUTOINCREMENT, checkpoint_id TEXT NOT NULL, session_id TEXT NOT NULL, path TEXT NOT NULL, existed INTEGER NOT NULL, content BLOB NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS task_items (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS usage_events (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, model TEXT NOT NULL, tokens INTEGER NOT NULL, created_at TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_checkpoints ON checkpoint_files(checkpoint_id);
             CREATE INDEX IF NOT EXISTS ix_session_messages ON session_messages(session_id, id);
             CREATE INDEX IF NOT EXISTS ix_task_items ON task_items(session_id, id);
@@ -230,3 +257,4 @@ public sealed record CheckpointSummary(string Id, DateTimeOffset CreatedAt, int 
 public sealed record CheckpointDifference(string Path, bool ExistedAtCheckpoint, bool ExistsNow, string Status);
 public sealed record AgentTaskItem(long Id, string Title, string Status, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 public sealed record AuditEventItem(string EventType, string Detail, DateTimeOffset CreatedAt);
+public sealed record UsageItem(string Model, int Tokens, DateTimeOffset CreatedAt);

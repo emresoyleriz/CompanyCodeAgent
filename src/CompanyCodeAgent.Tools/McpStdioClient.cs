@@ -8,6 +8,7 @@ namespace CompanyCodeAgent.Tools;
 public sealed class McpStdioClient(WorkspaceBoundary boundary)
 {
     private const int MaxResponseCharacters = 64 * 1024;
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
     public async Task<string> ListToolsAsync(string serverName, CancellationToken cancellationToken = default)
         => await SendAsync(serverName, "tools/list", new { }, cancellationToken);
@@ -26,7 +27,8 @@ public sealed class McpStdioClient(WorkspaceBoundary boundary)
 
     private async Task<string> SendAsync(McpServerDefinition server, string method, object parameters, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(server.Command)) throw new InvalidDataException("MCP sunucusu komutu boş.");
+        if (!string.IsNullOrWhiteSpace(server.Url)) return await SendHttpAsync(server, method, parameters, cancellationToken);
+        if (string.IsNullOrWhiteSpace(server.Command)) throw new InvalidDataException("MCP sunucusu için command veya url zorunludur.");
         var start = new ProcessStartInfo(server.Command)
         {
             WorkingDirectory = boundary.RootPath,
@@ -52,6 +54,52 @@ public sealed class McpStdioClient(WorkspaceBoundary boundary)
         {
             if (!process.HasExited) process.Kill(entireProcessTree: true);
         }
+    }
+
+    private async Task<string> SendHttpAsync(McpServerDefinition server, string method, object parameters, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(server.Url, UriKind.Absolute, out var endpoint)) throw new InvalidDataException("MCP HTTP URL geçersiz.");
+        await WebFetchTool.EnsurePublicEndpointAsync(endpoint, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+
+        var initialize = await SendHttpRequestAsync(endpoint, 1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "CompanyCodeAgent", version = "0.1" } }, null, timeout.Token);
+        var sessionId = initialize.SessionId;
+        await SendHttpRequestAsync(endpoint, null, "notifications/initialized", new { }, sessionId, timeout.Token);
+        var response = await SendHttpRequestAsync(endpoint, 2, method, parameters, sessionId, timeout.Token);
+        return Limit(response.Result);
+    }
+
+    private static async Task<(string Result, string? SessionId)> SendHttpRequestAsync(Uri endpoint, int? id, string method, object parameters, string? sessionId, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Accept.ParseAdd("application/json, text/event-stream");
+        if (!string.IsNullOrWhiteSpace(sessionId)) request.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
+        object payload = id.HasValue
+            ? new { jsonrpc = "2.0", id, method, @params = parameters }
+            : new { jsonrpc = "2.0", method, @params = parameters };
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        using var response = await Http.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!id.HasValue) return (string.Empty, response.Headers.TryGetValues("Mcp-Session-Id", out var values) ? values.FirstOrDefault() : sessionId);
+        var json = ExtractJsonRpcPayload(content);
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.TryGetProperty("error", out var error)) throw new InvalidOperationException("MCP hatası: " + error.GetRawText());
+        if (!document.RootElement.TryGetProperty("result", out var result)) throw new InvalidDataException("MCP HTTP yanıtında result yok.");
+        return (result.GetRawText(), response.Headers.TryGetValues("Mcp-Session-Id", out var sessionValues) ? sessionValues.FirstOrDefault() : sessionId);
+    }
+
+    private static string ExtractJsonRpcPayload(string content)
+    {
+        var trimmed = content.Trim();
+        if (trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var line = trimmed.Split('\n').Select(value => value.Trim()).FirstOrDefault(value => value.StartsWith("data:", StringComparison.OrdinalIgnoreCase));
+            if (line == null) throw new InvalidDataException("MCP SSE yanıtında veri yok.");
+            return line.Substring(5).Trim();
+        }
+        return trimmed;
     }
 
     private static async Task WriteAsync(Process process, int id, string method, object parameters, CancellationToken cancellationToken)
@@ -91,6 +139,7 @@ public sealed class McpServerDefinition
 {
     public string Name { get; init; } = string.Empty;
     public string Command { get; init; } = string.Empty;
+    public string? Url { get; init; }
     public List<string>? Arguments { get; init; }
     public List<string>? AllowedTools { get; init; }
 }

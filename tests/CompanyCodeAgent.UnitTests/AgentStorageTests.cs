@@ -95,6 +95,21 @@ public sealed class AgentStorageTests : IDisposable
         Assert.DoesNotContain("super-secret", item.Detail);
     }
 
+    [Fact]
+    public void Usage_Is_Persisted_Per_Session()
+    {
+        Directory.CreateDirectory(_root);
+        var storage = new AgentStorage(Path.Combine(_root, "state.db"));
+        storage.RecordUsage("one", "model-a", 12);
+        storage.RecordUsage("two", "model-b", 9);
+
+        var usage = storage.ReadUsage("one");
+
+        var item = Assert.Single(usage);
+        Assert.Equal("model-a", item.Model);
+        Assert.Equal(12, item.Tokens);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
