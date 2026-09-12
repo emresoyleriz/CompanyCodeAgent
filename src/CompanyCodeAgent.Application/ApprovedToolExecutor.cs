@@ -6,7 +6,7 @@ using CompanyCodeAgent.Tools;
 
 namespace CompanyCodeAgent.Application;
 
-public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary boundary, CommandPolicy commandPolicy, AgentStorage? storage = null)
+public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary boundary, CommandPolicy commandPolicy, AgentStorage? storage = null, ProjectPolicy? projectPolicy = null)
 {
     private const int MaxCommandOutputCharacters = 64 * 1024;
     public async Task<ToolResult> ExecuteAsync(ToolCall call, bool approved, string sessionId = "default", CancellationToken cancellationToken = default)
@@ -15,6 +15,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
             return new ToolResult(call.Id, false, "İşlem kullanıcı tarafından reddedildi.");
         try
         {
+            (projectPolicy ?? ProjectPolicy.Load(boundary)).EnsureAllowed(call.Kind.ToString());
             string? checkpointId = null;
             if (storage != null && call.Kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile)
                 checkpointId = storage.CreateCheckpoint(sessionId, boundary.RootPath, [boundary.EnsureInsideWorkspace(Required(call, "path"))]);
@@ -45,6 +46,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
                 AgentToolKind.WebFetch => await new WebFetchTool().FetchAsync(Required(call, "url"), cancellationToken),
                 AgentToolKind.GetGitBranch => await RunGitAsync("branch --show-current", cancellationToken),
                 AgentToolKind.CreateGitCommit => await CreateGitCommitAsync(call, cancellationToken),
+                AgentToolKind.GetGitStagedDiff => await RunGitAsync("diff --cached --no-ext-diff", cancellationToken),
                 _ => throw new NotSupportedException($"Araç henüz desteklenmiyor: {call.Kind}")
             };
             var fullOutput = checkpointId == null ? output : $"Checkpoint: {checkpointId}\n{output}";

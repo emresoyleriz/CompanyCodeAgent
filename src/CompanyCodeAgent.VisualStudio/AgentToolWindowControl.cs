@@ -268,11 +268,13 @@ public sealed class AgentToolWindowControl : UserControl
 
     private void StartSafely(Func<Task> action, string errorStatus)
     {
+#pragma warning disable VSSDK007 // WPF event handlers cannot await; FileAndForget routes faults to the VS activity log.
         ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
         {
             try { await action(); }
             catch (Exception ex) { Write("\n[Hata] " + ex.Message + "\n", Brushes.OrangeRed); SetStatus(errorStatus, true); }
         }).FileAndForget("CompanyCodeAgent/UiOperation");
+#pragma warning restore VSSDK007
     }
 
     public void SetPrompt(string prompt, string mode = null)
@@ -391,13 +393,14 @@ public sealed class AgentToolWindowControl : UserControl
             case "webfetch": kind = 24; requiresApproval = true; return true;
             case "getgitbranch": kind = 25; return true;
             case "creategitcommit": kind = 26; requiresApproval = true; return true;
+            case "getgitstageddiff": kind = 27; return true;
             default: kind = -1; return false;
         }
     }
 
-    private static bool IsPlanSafeTool(int toolKind) => toolKind == 0 || toolKind == 1 || toolKind == 2 || toolKind == 3 || toolKind == 4 || toolKind == 11 || toolKind == 12 || toolKind == 14 || toolKind == 15 || toolKind == 18 || toolKind == 19 || toolKind == 20 || toolKind == 21 || toolKind == 23 || toolKind == 25;
+    private static bool IsPlanSafeTool(int toolKind) => toolKind == 0 || toolKind == 1 || toolKind == 2 || toolKind == 3 || toolKind == 4 || toolKind == 11 || toolKind == 12 || toolKind == 14 || toolKind == 15 || toolKind == 18 || toolKind == 19 || toolKind == 20 || toolKind == 21 || toolKind == 23 || toolKind == 25 || toolKind == 27;
 
-    private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), write_file({path,content}), apply_patch({path,expected,replacement}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), web_fetch({url}). MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
+    private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), write_file({path,content}), apply_patch({path,expected,replacement}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_staged_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), web_fetch({url}). MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. Kod incelemesinde hem get_git_diff hem get_git_staged_diff kullan. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
 
     private static string BuildApprovalPrompt(string toolName, IReadOnlyDictionary<string, string> arguments)
     {

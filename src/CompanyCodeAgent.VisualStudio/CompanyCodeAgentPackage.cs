@@ -24,7 +24,7 @@ public sealed class CompanyCodeAgentPackage : AsyncPackage
         commandService.AddCommand(new MenuCommand((_, _) => ShowWithPrompt(null), new CommandID(new Guid(CommandSetGuid), ShowToolWindowCommandId)));
         commandService.AddCommand(new MenuCommand((_, _) => ShowWithPrompt("Seçili kodu açıkla; sorumluluklarını, akışını ve olası riskleri maddeler halinde anlat."), new CommandID(new Guid(CommandSetGuid), ExplainSelectionCommandId)));
         commandService.AddCommand(new MenuCommand((_, _) => ShowWithPrompt("Aktif dosyayı ve ilgili hata bağlamını incele. Önce kısa planı çıkar, sonra Act modunda güvenli düzeltme öner."), new CommandID(new Guid(CommandSetGuid), FixActiveFileCommandId)));
-        commandService.AddCommand(new MenuCommand((_, _) => ShowWithPrompt("Mevcut Git değişikliklerini get_git_diff ile incele. Yalnızca gerçek hata, güvenlik açığı veya test eksikliği bulgularını dosya ve satırla bildir; stil yorumu yapma.", "Plan"), new CommandID(new Guid(CommandSetGuid), ReviewChangesCommandId)));
+        commandService.AddCommand(new MenuCommand((_, _) => ShowWithPrompt("Mevcut Git değişikliklerini get_git_diff ve get_git_staged_diff ile incele. Yalnızca gerçek hata, güvenlik açığı veya test eksikliği bulgularını dosya ve satırla bildir; stil yorumu yapma.", "Plan"), new CommandID(new Guid(CommandSetGuid), ReviewChangesCommandId)));
     }
 
     private void ShowWithPrompt(string prompt, string mode = null)

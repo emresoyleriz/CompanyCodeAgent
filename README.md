@@ -46,6 +46,14 @@ Anahtar proje dosyalarına yazılmaz; yalnızca kullanıcının yerel Windows pr
 
 Agent yalnızca açık solution klasöründe çalışır. Yazma, patch, silme, komut, build, test ve checkpoint geri alma işlemleri kullanıcı onayı ister. Komutlar iki dakika ve 64 KB çıktı sınırıyla çalışır; yıkıcı komut desenleri engellenir. `.env`, sertifika, private-key ve bilinen secret dosyaları agent araçlarına kapalıdır.
 
+Proje politikası için isteğe bağlı `.company-agent/policy.json` oluşturabilirsiniz:
+
+```json
+{ "blockedTools": ["RunCommand", "WebFetch", "McpCallTool"] }
+```
+
+Engellenen araçlar kullanıcı onayı veya Autopilot seçimiyle de çalıştırılamaz.
+
 ## MCP sunucuları
 
 İsteğe bağlı stdio MCP sunucularını proje kökündeki `.company-agent/mcp.json` dosyasında açıkça tanımlayın. Her çağrı araç bazlı onay ister ve `allowedTools` dışında çağrı yapılamaz:

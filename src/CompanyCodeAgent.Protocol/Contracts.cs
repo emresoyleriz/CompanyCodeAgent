@@ -56,6 +56,7 @@ public enum AgentToolKind
     ,WebFetch
     ,GetGitBranch
     ,CreateGitCommit
+    ,GetGitStagedDiff
 }
 
 public sealed record ToolCall(

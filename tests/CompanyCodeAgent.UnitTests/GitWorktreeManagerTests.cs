@@ -65,8 +65,12 @@ public sealed class GitWorktreeManagerTests
             var boundary = new WorkspaceBoundary(root);
             var executor = new ApprovedToolExecutor(new WorkspaceTools(boundary), boundary, new CommandPolicy());
 
+            var staged = await executor.ExecuteAsync(new ToolCall("staged", AgentToolKind.GetGitStagedDiff, new Dictionary<string, string>()), true);
+
             var result = await executor.ExecuteAsync(new ToolCall("commit", AgentToolKind.CreateGitCommit, new Dictionary<string, string> { ["message"] = "agent commit" }), true);
 
+            Assert.True(staged.Success);
+            Assert.Contains("two", staged.Output);
             Assert.True(result.Success);
             Assert.Equal("two", File.ReadAllText(Path.Combine(root, "tracked.txt")));
             Assert.True(File.Exists(Path.Combine(root, "unstaged.txt")));
