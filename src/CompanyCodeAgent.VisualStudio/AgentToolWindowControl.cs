@@ -155,9 +155,13 @@ public sealed class AgentToolWindowControl : UserControl
             var context = VisualStudioContextProvider.Capture();
             var projectRules = VisualStudioContextProvider.LoadProjectRules();
             var systemInstruction = "Sen güvenli bir Visual Studio coding agent'sın. " + modeInstruction + " Gizli bilgileri yazma. " + ToolContract + (string.IsNullOrWhiteSpace(projectRules) ? string.Empty : "\nProje kuralları:\n" + projectRules) + (string.IsNullOrWhiteSpace(savedHistory) ? string.Empty : "\nÖnceki oturum mesajları:\n" + savedHistory);
-            var body = new { model = selectedModel, stream = true, messages = new[] {
-                new { role = "system", content = systemInstruction },
-                new { role = "system", content = context }, new { role = "user", content = expandedPrompt } } };
+            var messages = new List<Dictionary<string, string>>
+            {
+                new(StringComparer.Ordinal) { ["role"] = "system", ["content"] = systemInstruction },
+                new(StringComparer.Ordinal) { ["role"] = "system", ["content"] = context },
+                new(StringComparer.Ordinal) { ["role"] = "user", ["content"] = expandedPrompt }
+            };
+            var body = new { model = selectedModel, stream = true, messages };
             using var request = CreateRequest(HttpMethod.Post, "v1/chat/completions"); request.Content = new StringContent(Json.Serialize(body), Encoding.UTF8, "application/json");
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _cancellation.Token); response.EnsureSuccessStatusCode();
             var fullResponse = new StringBuilder();
@@ -169,18 +173,18 @@ public sealed class AgentToolWindowControl : UserControl
                 var data = line.Substring(6); if (data == "[DONE]") break; totalTokens = Math.Max(totalTokens, ReadTotalTokens(data)); var token = ReadDelta(data); if (!string.IsNullOrEmpty(token)) { fullResponse.Append(token); Write(token, Brushes.White); }
             }
             var assistantResponse = fullResponse.ToString();
+            messages.Add(new Dictionary<string, string>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             var toolResult = _cancellation.IsCancellationRequested ? string.Empty : await HandleToolCallAsync(assistantResponse, planMode, autopilot);
             for (var step = 1; step < GetMaxAgentSteps() && !string.IsNullOrWhiteSpace(toolResult) && !_cancellation.IsCancellationRequested; step++)
             {
                 Write("\nAgent\n", Brushes.LightGreen);
-                var followUp = new { model = selectedModel, stream = true, messages = new[] {
-                    new { role = "system", content = systemInstruction },
-                    new { role = "system", content = context }, new { role = "user", content = expandedPrompt },
-                    new { role = "assistant", content = assistantResponse }, new { role = "user", content = "Araç sonucu:\n" + toolResult + "\nGerekirse bir sonraki tek JSON tool_call döndür. İş bittiyse kullanıcıya kısa, doğrulanabilir sonucu bildir." } } };
+                messages.Add(new Dictionary<string, string>(StringComparer.Ordinal) { ["role"] = "user", ["content"] = "Araç sonucu:\n" + Limit(toolResult) + "\nGerekirse bir sonraki tek JSON tool_call döndür. İş bittiyse kullanıcıya kısa, doğrulanabilir sonucu bildir." });
+                var followUp = new { model = selectedModel, stream = true, messages };
                 var streamed = await StreamResponseAsync(followUp);
                 assistantResponse = streamed.Content;
                 totalTokens += streamed.TotalTokens;
+                messages.Add(new Dictionary<string, string>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 toolResult = await HandleToolCallAsync(assistantResponse, planMode, autopilot);
             }

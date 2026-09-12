@@ -92,3 +92,5 @@ Agent, ihtiyaç duyduğunda `web_fetch({"url":"https://docs.example.com"})` iste
 ## İzole Git worktree
 
 Agent `list_git_worktrees` ile mevcut alanları inceleyebilir. `create_git_worktree({"branch":"feature/auth"})` onay sonrası yeni branch ve izole worktree oluşturur. Worktree ana solution altında değil, kullanıcının yerel `CompanyCodeAgent/worktrees` alanında tutulur.
+
+`create_git_commit({"message":"feat: add auth"})` ayrıca kullanıcı onayıyla yalnızca Git index'te zaten stage edilmiş değişiklikleri commit eder; agent hiçbir zaman otomatik `git add` çalıştırmaz.
