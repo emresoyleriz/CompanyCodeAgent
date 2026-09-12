@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">17.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+  </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{78741695-01C8-4B5A-ABC4-F5EE59BDB8B0}</ProjectGuid>
+    <ProjectTypeGuids>{82B43B9B-A64C-4715-B499-D71E9CA2BD60};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <OutputType>Library</OutputType>
+    <RootNamespace>CompanyCodeAgent.VisualStudio</RootNamespace>
+    <AssemblyName>CompanyCodeAgent.VisualStudio</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <RuntimeIdentifiers>win</RuntimeIdentifiers>
+    <LangVersion>latest</LangVersion>
+    <GeneratePkgDefFile>true</GeneratePkgDefFile>
+    <UseCodebase>true</UseCodebase>
+    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
+    <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
+    <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
+    <CopyOutputSymbolsToOutputDirectory>true</CopyOutputSymbolsToOutputDirectory>
+    <StartAction>Program</StartAction>
+    <StartProgram Condition="'$(DevEnvDir)' != ''">$(DevEnvDir)devenv.exe</StartProgram>
+    <StartArguments>/rootsuffix Exp</StartArguments>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
+    <DebugSymbols>true</DebugSymbols><DebugType>full</DebugType><Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath><DefineConstants>DEBUG;TRACE</DefineConstants><WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|AnyCPU'">
+    <DebugType>pdbonly</DebugType><Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" /><Reference Include="System.Design" /><Reference Include="System.Net.Http" /><Reference Include="System.Security" /><Reference Include="System.Web.Extensions" /><Reference Include="Microsoft.CSharp" /><Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" /><Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AgentHostClient.cs" /><Compile Include="AgentSettingsStore.cs" /><Compile Include="AgentToolWindow.cs" /><Compile Include="AgentToolWindowControl.cs" /><Compile Include="CompanyCodeAgentPackage.cs" /><Compile Include="VisualStudioContextProvider.cs" /><Compile Include="VisualStudioDiffPreview.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="source.extension.vsixmanifest"><SubType>Designer</SubType></None>
+    <VSCTCompile Include="CompanyCodeAgent.vsct"><ResourceName>Menus.ctmenu</ResourceName></VSCTCompile>
+    <Content Include="..\CompanyCodeAgent.Host\bin\$(Configuration)\net9.0\**\*.*">
+      <Link>AgentHost\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.0.32112.339" ExcludeAssets="runtime" NoWarn="NU1604" />
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.14.2101" NoWarn="NU1604" />
+  </ItemGroup>
+  <Target Name="BuildAgentHost" BeforeTargets="CreateVsixContainer">
+    <MSBuild Projects="..\CompanyCodeAgent.Host\CompanyCodeAgent.Host.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+  </Target>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
+</Project>

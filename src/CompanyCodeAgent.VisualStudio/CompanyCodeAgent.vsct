@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+  <Commands package="guidCompanyCodeAgentPackage">
+    <Groups>
+      <Group guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+    </Groups>
+    <Buttons>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="ShowToolWindowCommand" priority="0x0100" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" />
+        <Strings><ButtonText>Company Code Agent</ButtonText></Strings>
+      </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="ExplainSelectionCommand" priority="0x0110" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" />
+        <Strings><ButtonText>Agent: Seçili Kodu Açıkla</ButtonText></Strings>
+      </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="FixActiveFileCommand" priority="0x0120" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" />
+        <Strings><ButtonText>Agent: Aktif Dosyayı İncele ve Düzelt</ButtonText></Strings>
+      </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="ReviewChangesCommand" priority="0x0130" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" />
+        <Strings><ButtonText>Agent: Değişiklikleri İncele</ButtonText></Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+  <Symbols>
+    <GuidSymbol name="guidCompanyCodeAgentPackage" value="{e50bb793-a2bd-470e-8a02-5f31829e63ba}" />
+    <GuidSymbol name="guidCompanyCodeAgentCommandSet" value="{b2c53c74-679f-43cd-b2ea-56e215ae2857}">
+      <IDSymbol name="CompanyCodeAgentGroup" value="0x1020" />
+      <IDSymbol name="ShowToolWindowCommand" value="0x0100" />
+      <IDSymbol name="ExplainSelectionCommand" value="0x0110" />
+      <IDSymbol name="FixActiveFileCommand" value="0x0120" />
+      <IDSymbol name="ReviewChangesCommand" value="0x0130" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

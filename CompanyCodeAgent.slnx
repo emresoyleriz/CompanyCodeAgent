@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CompanyCodeAgent.Application/CompanyCodeAgent.Application.csproj" />
+    <Project Path="src/CompanyCodeAgent.Domain/CompanyCodeAgent.Domain.csproj" />
+    <Project Path="src/CompanyCodeAgent.Host/CompanyCodeAgent.Host.csproj" />
+    <Project Path="src/CompanyCodeAgent.Llm/CompanyCodeAgent.Llm.csproj" />
+    <Project Path="src/CompanyCodeAgent.Protocol/CompanyCodeAgent.Protocol.csproj" />
+    <Project Path="src/CompanyCodeAgent.Tools/CompanyCodeAgent.Tools.csproj" />
+    <Project Path="src/CompanyCodeAgent.VisualStudio/CompanyCodeAgent.VisualStudio.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CompanyCodeAgent.UnitTests/CompanyCodeAgent.UnitTests.csproj" />
+  </Folder>
+</Solution>

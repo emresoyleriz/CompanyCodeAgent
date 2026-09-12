@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.9" />
+    <ProjectReference Include="..\CompanyCodeAgent.Protocol\CompanyCodeAgent.Protocol.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Domain\CompanyCodeAgent.Domain.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Llm\CompanyCodeAgent.Llm.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Tools\CompanyCodeAgent.Tools.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\CompanyCodeAgent.Application\CompanyCodeAgent.Application.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Domain\CompanyCodeAgent.Domain.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Llm\CompanyCodeAgent.Llm.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Protocol\CompanyCodeAgent.Protocol.csproj" />
+    <ProjectReference Include="..\CompanyCodeAgent.Tools\CompanyCodeAgent.Tools.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
