@@ -1,7 +1,3 @@
-# Company Code Agent
-
-Company Code Agent; C# ile yazılmış, Visual Studio 2022 için paketlenen bağımsız coding-agent uzantısıdır. Cline veya GitHub Copilot kaynak kodu, markası ya da özel bulut hizmetleri kullanılmaz.
-
 ## Çalışan özellikler
 
 - OpenAI-uyumlu model listeleme ve SSE streaming chat
