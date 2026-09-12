@@ -82,8 +82,11 @@ Sohbet içinde aşağıdaki ifadeleri kullanabilirsiniz:
 - `@file:src/Program.cs` — dosya içeriğini bağlama ekler.
 - `@folder:src` — klasörün güvenli dosya listesini ekler.
 - `@problems` — Visual Studio Error List tanılarını ekler.
+- `@image:docs/screen.png` — PNG, JPEG, GIF veya WebP görselini çok-modlu modele ekler.
 
 Workspace dışı, hassas veya büyük dosyalar bu bağlama alınmaz.
+
+Görsel ekleri 5 MB ile sınırlıdır ve seçtiğiniz sağlayıcının OpenAI-uyumlu görsel mesajlarını desteklemesi gerekir.
 
 ## Güvenli web bağlamı
 

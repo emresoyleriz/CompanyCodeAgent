@@ -83,6 +83,28 @@ internal static class VisualStudioContextProvider
         return result;
     }
 
+    public static string ExtractImageMention(string input, out string dataUri)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        dataUri = null;
+        var match = Regex.Match(input ?? string.Empty, "@image:([^\\s]+)", RegexOptions.IgnoreCase);
+        if (!match.Success) return input;
+        var relativePath = match.Groups[1].Value;
+        try
+        {
+            var fullPath = EnsureWorkspacePath(GetWorkspacePath(), relativePath);
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            var mediaType = extension == ".png" ? "image/png" : extension is ".jpg" or ".jpeg" ? "image/jpeg" : extension == ".gif" ? "image/gif" : extension == ".webp" ? "image/webp" : null;
+            if (mediaType == null) throw new InvalidOperationException("Desteklenmeyen görsel türü.");
+            var info = new FileInfo(fullPath);
+            if (!info.Exists) throw new FileNotFoundException("Görsel bulunamadı.", fullPath);
+            if (info.Length > 5 * 1024 * 1024) throw new InvalidOperationException("Görsel 5 MB sınırını aşıyor.");
+            dataUri = "data:" + mediaType + ";base64," + Convert.ToBase64String(File.ReadAllBytes(fullPath));
+            return input.Remove(match.Index, match.Length).Trim();
+        }
+        catch (Exception ex) { return input + "\n[Görsel eklenemedi: " + ex.Message + "]"; }
+    }
+
     private static string ReadMentionedFile(string relativePath)
     {
         ThreadHelper.ThrowIfNotOnUIThread();

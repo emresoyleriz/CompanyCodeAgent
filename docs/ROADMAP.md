@@ -58,7 +58,7 @@ Bu liste Cline ve GitHub Copilot'un herkese açık IDE iş akışlarının clean
 | Kod inceleme | Eksik | Branch/staged/unstaged diff üzerinde satır-bağlantılı bulgu ve öneri uygulama |
 | Kurallar / prompt dosyaları | Kısmi | Kural dosyaları, `/deep-planning` ve proje prompt/skill dosyaları var; yol-deseni kuralları eksik |
 | Model sağlayıcıları | Kısmi | OpenAI-uyumlu akış yanında sağlayıcı profilleri, Plan/Act model ayrımı, kullanım/maliyet kaydı |
-| MCP / haricî araç | Kısmi | İzinli stdio MCP, güvenli HTTPS web fetch, araç keşfi ve allowlist/onay/audit var; HTTP MCP/OAuth ve ayar arayüzü eksik |
+| MCP / haricî araç | Kısmi | İzinli stdio MCP, güvenli HTTPS web fetch, görsel ek ve allowlist/onay/audit var; HTTP MCP/OAuth ve ayar arayüzü eksik |
 | Git ve görev yönetimi | Kısmi | Diff/status, görev listesi ve izole worktree oluşturma var; commit/PR hazırlığı eksik |
 | Güvenlik ve kurum | Kısmi | Allowlist, secret redaction, audit export, merkezi politika, proxy/sertifika, imzalı dağıtım |
 

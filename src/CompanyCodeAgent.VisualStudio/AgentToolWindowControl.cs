@@ -30,9 +30,11 @@ public sealed class AgentToolWindowControl : UserControl
     private readonly RichTextBox _conversation = new() { IsReadOnly = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     private readonly TextBox _input = new() { MinHeight = 92, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly Button _send = new() { Content = "Gönder", MinWidth = 95 };
+    private readonly Button _retry = new() { Content = "Tekrarla", MinWidth = 75 };
     private readonly TextBlock _status = new() { Foreground = Brushes.Gray, Text = "Hazır" };
     private AgentSettings _settings;
     private CancellationTokenSource _cancellation;
+    private string _lastPrompt = string.Empty;
 
     public AgentToolWindowControl()
     {
@@ -60,8 +62,9 @@ public sealed class AgentToolWindowControl : UserControl
         var cancel = StyledButton("Durdur", 70); cancel.Margin = new Thickness(0, 0, 8, 0);
         cancel.Click += (_, _) => _cancellation?.Cancel();
         _send.Click += SendClicked;
-        DockPanel.SetDock(_send, Dock.Right); DockPanel.SetDock(cancel, Dock.Right);
-        footer.Children.Add(_send); footer.Children.Add(cancel); footer.Children.Add(_status);
+        _retry.Click += RetryClicked; _retry.Margin = new Thickness(0, 0, 8, 0);
+        DockPanel.SetDock(_send, Dock.Right); DockPanel.SetDock(_retry, Dock.Right); DockPanel.SetDock(cancel, Dock.Right);
+        footer.Children.Add(_send); footer.Children.Add(_retry); footer.Children.Add(cancel); footer.Children.Add(_status);
         Grid.SetRow(footer, 3); root.Children.Add(footer); Content = root;
         Write("Hazır. Aktif dosya ve seçili kod bağlama otomatik eklenir. Plan modunda önce yaklaşımı üretin; Act modunda onaylı araçlarla uygulayın.\n\n", Brushes.LightSteelBlue);
     }
@@ -101,6 +104,9 @@ public sealed class AgentToolWindowControl : UserControl
         _send.Background = new SolidColorBrush(Color.FromRgb(79, 70, 229));
         _send.Foreground = Brushes.White;
         _send.BorderBrush = Brushes.Transparent;
+        _retry.Background = new SolidColorBrush(Color.FromRgb(58, 62, 75));
+        _retry.Foreground = Brushes.WhiteSmoke;
+        _retry.BorderBrush = new SolidColorBrush(Color.FromRgb(90, 95, 110));
     }
 
     private static Button StyledButton(string content, double minWidth)
@@ -129,12 +135,14 @@ public sealed class AgentToolWindowControl : UserControl
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
         var prompt = _input.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt)) return;
+        _lastPrompt = prompt;
         try
         {
             SaveSettings(); _cancellation?.Cancel(); _cancellation = new CancellationTokenSource(); _cancellation.CancelAfter(TimeSpan.FromMinutes(GetTimeoutMinutes())); _send.IsEnabled = false;
             Write("Siz\n" + prompt + "\n\n", Brushes.White); _input.Clear(); Write("Agent\n", Brushes.LightGreen); SetStatus("Yanıt akışı alınıyor…");
             var workspacePath = VisualStudioContextProvider.GetWorkspacePath();
-            var expandedPrompt = VisualStudioContextProvider.ExpandMentions(VisualStudioContextProvider.ExpandPromptOrSkill(prompt));
+            var promptWithoutImage = VisualStudioContextProvider.ExtractImageMention(prompt, out var imageDataUri);
+            var expandedPrompt = VisualStudioContextProvider.ExpandMentions(VisualStudioContextProvider.ExpandPromptOrSkill(promptWithoutImage));
             if (!string.Equals(expandedPrompt, prompt, StringComparison.Ordinal)) SetStatus("Prompt/skill bağlamı yüklendi.");
             var savedHistory = await TryReadHistoryAsync(workspacePath);
             await TrySaveMessageAsync(workspacePath, "user", prompt);
@@ -155,11 +163,11 @@ public sealed class AgentToolWindowControl : UserControl
             var context = VisualStudioContextProvider.Capture();
             var projectRules = VisualStudioContextProvider.LoadProjectRules();
             var systemInstruction = "Sen güvenli bir Visual Studio coding agent'sın. " + modeInstruction + " Gizli bilgileri yazma. " + ToolContract + (string.IsNullOrWhiteSpace(projectRules) ? string.Empty : "\nProje kuralları:\n" + projectRules) + (string.IsNullOrWhiteSpace(savedHistory) ? string.Empty : "\nÖnceki oturum mesajları:\n" + savedHistory);
-            var messages = new List<Dictionary<string, string>>
+            var messages = new List<Dictionary<string, object>>
             {
                 new(StringComparer.Ordinal) { ["role"] = "system", ["content"] = systemInstruction },
                 new(StringComparer.Ordinal) { ["role"] = "system", ["content"] = context },
-                new(StringComparer.Ordinal) { ["role"] = "user", ["content"] = expandedPrompt }
+                new(StringComparer.Ordinal) { ["role"] = "user", ["content"] = string.IsNullOrWhiteSpace(imageDataUri) ? (object)expandedPrompt : new object[] { new { type = "text", text = expandedPrompt }, new { type = "image_url", image_url = new { url = imageDataUri } } } }
             };
             var body = new { model = selectedModel, stream = true, messages };
             using var request = CreateRequest(HttpMethod.Post, "v1/chat/completions"); request.Content = new StringContent(Json.Serialize(body), Encoding.UTF8, "application/json");
@@ -173,18 +181,18 @@ public sealed class AgentToolWindowControl : UserControl
                 var data = line.Substring(6); if (data == "[DONE]") break; totalTokens = Math.Max(totalTokens, ReadTotalTokens(data)); var token = ReadDelta(data); if (!string.IsNullOrEmpty(token)) { fullResponse.Append(token); Write(token, Brushes.White); }
             }
             var assistantResponse = fullResponse.ToString();
-            messages.Add(new Dictionary<string, string>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
+            messages.Add(new Dictionary<string, object>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             var toolResult = _cancellation.IsCancellationRequested ? string.Empty : await HandleToolCallAsync(assistantResponse, planMode, autopilot);
             for (var step = 1; step < GetMaxAgentSteps() && !string.IsNullOrWhiteSpace(toolResult) && !_cancellation.IsCancellationRequested; step++)
             {
                 Write("\nAgent\n", Brushes.LightGreen);
-                messages.Add(new Dictionary<string, string>(StringComparer.Ordinal) { ["role"] = "user", ["content"] = "Araç sonucu:\n" + Limit(toolResult) + "\nGerekirse bir sonraki tek JSON tool_call döndür. İş bittiyse kullanıcıya kısa, doğrulanabilir sonucu bildir." });
+                messages.Add(new Dictionary<string, object>(StringComparer.Ordinal) { ["role"] = "user", ["content"] = "Araç sonucu:\n" + Limit(toolResult) + "\nGerekirse bir sonraki tek JSON tool_call döndür. İş bittiyse kullanıcıya kısa, doğrulanabilir sonucu bildir." });
                 var followUp = new { model = selectedModel, stream = true, messages };
                 var streamed = await StreamResponseAsync(followUp);
                 assistantResponse = streamed.Content;
                 totalTokens += streamed.TotalTokens;
-                messages.Add(new Dictionary<string, string>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
+                messages.Add(new Dictionary<string, object>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 toolResult = await HandleToolCallAsync(assistantResponse, planMode, autopilot);
             }
@@ -197,6 +205,13 @@ public sealed class AgentToolWindowControl : UserControl
     }
 
     private void SendClicked(object sender, RoutedEventArgs e) => StartSafely(SendAsync, "İstek başarısız.");
+
+    private void RetryClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_lastPrompt)) { SetStatus("Tekrarlanacak önceki istek yok.", true); return; }
+        _input.Text = _lastPrompt;
+        StartSafely(SendAsync, "İstek başarısız.");
+    }
 
     private void LoadModelsClicked(object sender, RoutedEventArgs e) => StartSafely(LoadModelsAsync, "Model listesi alınamadı.");
 
