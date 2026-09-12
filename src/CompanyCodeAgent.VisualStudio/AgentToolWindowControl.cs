@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -27,6 +28,7 @@ public sealed class AgentToolWindowControl : UserControl
     private readonly TextBox _maxSteps = new() { MinWidth = 42, Text = "5" };
     private readonly TextBox _timeoutMinutes = new() { MinWidth = 42, Text = "10" };
     private readonly ComboBox _mode = new() { MinWidth = 90, ItemsSource = new[] { "Plan", "Interactive", "Autopilot" }, SelectedIndex = 0 };
+    private readonly ComboBox _agentProfile = new() { MinWidth = 115, IsEditable = false };
     private readonly RichTextBox _conversation = new() { IsReadOnly = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     private readonly TextBox _input = new() { MinHeight = 92, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly Button _send = new() { Content = "Gönder", MinWidth = 95 };
@@ -38,6 +40,7 @@ public sealed class AgentToolWindowControl : UserControl
 
     public AgentToolWindowControl()
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
         _settings = AgentSettingsStore.Load();
         _endpoint.Text = _settings.Endpoint;
         _apiKey.Password = _settings.GetApiKey();
@@ -47,6 +50,9 @@ public sealed class AgentToolWindowControl : UserControl
         _actModel.Text = string.IsNullOrWhiteSpace(_settings.ActModel) ? _settings.Model : _settings.ActModel;
         _maxSteps.Text = Clamp(_settings.MaxAgentSteps, 1, 20).ToString();
         _timeoutMinutes.Text = Clamp(_settings.TimeoutMinutes, 1, 60).ToString();
+        _agentProfile.Items.Add("Genel");
+        _agentProfile.SelectedIndex = 0;
+        RefreshAgentProfiles(VisualStudioContextProvider.GetWorkspacePath());
         ApplyTheme();
         var root = new Grid { Margin = new Thickness(10), Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -72,7 +78,7 @@ public sealed class AgentToolWindowControl : UserControl
     private FrameworkElement CreateHeader()
     {
         var panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        panel.Children.Add(Labeled("API", _endpoint)); panel.Children.Add(Labeled("Anahtar", _apiKey)); panel.Children.Add(Labeled("Model", _models)); panel.Children.Add(_separateModels); panel.Children.Add(Labeled("Plan modeli", _planModel)); panel.Children.Add(Labeled("Act modeli", _actModel)); panel.Children.Add(Labeled("Mod", _mode)); panel.Children.Add(Labeled("Adım", _maxSteps)); panel.Children.Add(Labeled("Dakika", _timeoutMinutes));
+        panel.Children.Add(Labeled("API", _endpoint)); panel.Children.Add(Labeled("Anahtar", _apiKey)); panel.Children.Add(Labeled("Model", _models)); panel.Children.Add(_separateModels); panel.Children.Add(Labeled("Plan modeli", _planModel)); panel.Children.Add(Labeled("Act modeli", _actModel)); panel.Children.Add(Labeled("Mod", _mode)); panel.Children.Add(Labeled("Ajan", _agentProfile)); panel.Children.Add(Labeled("Adım", _maxSteps)); panel.Children.Add(Labeled("Dakika", _timeoutMinutes));
         var models = StyledButton("Modelleri yükle", 110); models.Margin = new Thickness(4);
         models.Click += LoadModelsClicked; panel.Children.Add(models);
         var history = StyledButton("Geçmiş", 70); history.Margin = new Thickness(4);
@@ -81,6 +87,46 @@ public sealed class AgentToolWindowControl : UserControl
         tasks.Click += TasksClicked; panel.Children.Add(tasks);
         var audit = StyledButton("Audit", 60); audit.Margin = new Thickness(4);
         audit.Click += AuditClicked; panel.Children.Add(audit); return panel;
+    }
+
+    private void RefreshAgentProfiles(string workspacePath)
+    {
+        var selected = _agentProfile.SelectedItem as string ?? "Genel";
+        var profiles = FindAgentProfiles(workspacePath).ToArray();
+        if (profiles.All(profile => !string.Equals(profile, selected, StringComparison.OrdinalIgnoreCase))) selected = "Genel";
+        _agentProfile.Items.Clear();
+        _agentProfile.Items.Add("Genel");
+        foreach (var profile in profiles) _agentProfile.Items.Add(profile);
+        _agentProfile.SelectedItem = selected;
+    }
+
+    private static IEnumerable<string> FindAgentProfiles(string workspacePath)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath)) yield break;
+        foreach (var folder in new[] { ".company-agent\\agents", ".github\\agents" })
+        {
+            var directory = Path.Combine(workspacePath, folder);
+            if (!Directory.Exists(directory)) continue;
+            foreach (var file in Directory.EnumerateFiles(directory, "*.md", SearchOption.TopDirectoryOnly).Take(30))
+                yield return folder.Replace('\\', '/') + "/" + Path.GetFileName(file);
+        }
+    }
+
+    private string LoadSelectedAgentProfile(string workspacePath)
+    {
+        var selected = _agentProfile.SelectedItem as string;
+        if (string.IsNullOrWhiteSpace(selected) || string.Equals(selected, "Genel", StringComparison.OrdinalIgnoreCase)) return string.Empty;
+        var known = FindAgentProfiles(workspacePath).FirstOrDefault(profile => string.Equals(profile, selected, StringComparison.OrdinalIgnoreCase));
+        if (known == null) return string.Empty;
+        try
+        {
+            var fullPath = Path.GetFullPath(Path.Combine(workspacePath, known.Replace('/', Path.DirectorySeparatorChar)));
+            var root = Path.GetFullPath(workspacePath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath) || new FileInfo(fullPath).Length > 64 * 1024) return string.Empty;
+            return "--- " + known + " ---\n" + File.ReadAllText(fullPath);
+        }
+        catch (IOException) { return string.Empty; }
+        catch (UnauthorizedAccessException) { return string.Empty; }
     }
 
     private static FrameworkElement Labeled(string label, Control control)
@@ -141,6 +187,7 @@ public sealed class AgentToolWindowControl : UserControl
             SaveSettings(); _cancellation?.Cancel(); _cancellation = new CancellationTokenSource(); _cancellation.CancelAfter(TimeSpan.FromMinutes(GetTimeoutMinutes())); _send.IsEnabled = false;
             Write("Siz\n" + prompt + "\n\n", Brushes.White); _input.Clear(); Write("Agent\n", Brushes.LightGreen); SetStatus("Yanıt akışı alınıyor…");
             var workspacePath = VisualStudioContextProvider.GetWorkspacePath();
+            RefreshAgentProfiles(workspacePath);
             var promptWithoutImage = VisualStudioContextProvider.ExtractImageMention(prompt, out var imageDataUri);
             var expandedPrompt = VisualStudioContextProvider.ExpandMentions(VisualStudioContextProvider.ExpandPromptOrSkill(promptWithoutImage));
             if (!string.Equals(expandedPrompt, prompt, StringComparison.Ordinal)) SetStatus("Prompt/skill bağlamı yüklendi.");
@@ -162,7 +209,8 @@ public sealed class AgentToolWindowControl : UserControl
                     : "INTERACTIVE modundasın. Dosya değişikliği veya komut gerektiğinde yalnızca JSON tool_call döndür; her etkili işlem kullanıcı onayı bekler.";
             var context = VisualStudioContextProvider.Capture();
             var projectRules = VisualStudioContextProvider.LoadProjectRules();
-            var systemInstruction = "Sen güvenli bir Visual Studio coding agent'sın. " + modeInstruction + " Gizli bilgileri yazma. " + ToolContract + (string.IsNullOrWhiteSpace(projectRules) ? string.Empty : "\nProje kuralları:\n" + projectRules) + (string.IsNullOrWhiteSpace(savedHistory) ? string.Empty : "\nÖnceki oturum mesajları:\n" + savedHistory);
+            var agentProfile = LoadSelectedAgentProfile(workspacePath);
+            var systemInstruction = "Sen güvenli bir Visual Studio coding agent'sın. " + modeInstruction + " Gizli bilgileri yazma. " + ToolContract + (string.IsNullOrWhiteSpace(projectRules) ? string.Empty : "\nProje kuralları:\n" + projectRules) + (string.IsNullOrWhiteSpace(agentProfile) ? string.Empty : "\nSeçili özel ajan profili:\n" + agentProfile) + (string.IsNullOrWhiteSpace(savedHistory) ? string.Empty : "\nÖnceki oturum mesajları:\n" + savedHistory);
             var messages = new List<Dictionary<string, object>>
             {
                 new(StringComparer.Ordinal) { ["role"] = "system", ["content"] = systemInstruction },
@@ -324,6 +372,12 @@ public sealed class AgentToolWindowControl : UserControl
                 Write("\n[Plan koruması] " + planOnly + "\n", Brushes.OrangeRed);
                 return planOnly;
             }
+            if (toolKind == 28)
+            {
+                var diagnostics = VisualStudioContextProvider.GetDiagnostics();
+                Write("\n[Tool " + toolName + "] " + diagnostics + "\n", Brushes.LightGreen);
+                return diagnostics;
+            }
             var arguments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (root.TryGetValue("arguments", out var raw) && raw is Dictionary<string, object> values)
                 foreach (var value in values) arguments[value.Key] = value.Value is Dictionary<string, object> or object[] ? Json.Serialize(value.Value) : value.Value?.ToString() ?? string.Empty;
@@ -364,7 +418,7 @@ public sealed class AgentToolWindowControl : UserControl
     private static bool TryGetTool(string name, out int kind, out bool requiresApproval)
     {
         requiresApproval = false;
-        switch (name?.ToLowerInvariant())
+        switch ((name ?? string.Empty).Replace("_", string.Empty).Replace("-", string.Empty).ToLowerInvariant())
         {
             case "listfiles": kind = 0; return true;
             case "searchfiles": kind = 1; return true;
@@ -394,13 +448,14 @@ public sealed class AgentToolWindowControl : UserControl
             case "getgitbranch": kind = 25; return true;
             case "creategitcommit": kind = 26; requiresApproval = true; return true;
             case "getgitstageddiff": kind = 27; return true;
+            case "getdiagnostics": kind = 28; return true;
             default: kind = -1; return false;
         }
     }
 
-    private static bool IsPlanSafeTool(int toolKind) => toolKind == 0 || toolKind == 1 || toolKind == 2 || toolKind == 3 || toolKind == 4 || toolKind == 11 || toolKind == 12 || toolKind == 14 || toolKind == 15 || toolKind == 18 || toolKind == 19 || toolKind == 20 || toolKind == 21 || toolKind == 23 || toolKind == 25 || toolKind == 27;
+    private static bool IsPlanSafeTool(int toolKind) => toolKind == 0 || toolKind == 1 || toolKind == 2 || toolKind == 3 || toolKind == 4 || toolKind == 11 || toolKind == 12 || toolKind == 14 || toolKind == 15 || toolKind == 18 || toolKind == 19 || toolKind == 20 || toolKind == 21 || toolKind == 23 || toolKind == 25 || toolKind == 27 || toolKind == 28;
 
-    private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), write_file({path,content}), apply_patch({path,expected,replacement}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_staged_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), web_fetch({url}). MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. Kod incelemesinde hem get_git_diff hem get_git_staged_diff kullan. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
+    private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), get_diagnostics({}), write_file({path,content}), apply_patch({path,expected,replacement}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_staged_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), web_fetch({url}). MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. Kod incelemesinde hem get_git_diff hem get_git_staged_diff ve get_diagnostics kullan. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
 
     private static string BuildApprovalPrompt(string toolName, IReadOnlyDictionary<string, string> arguments)
     {

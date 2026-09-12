@@ -4,7 +4,7 @@
 - Tek sağlayıcı altında Plan ve Act/Autopilot için ayrı model seçimi
 - Panelden ayarlanabilir görev süresi (1–60 dk) ve agent adım sınırı (1–20)
 - Şifreli yerel API anahtarı saklama (Windows kullanıcı hesabına bağlı DPAPI)
-- Aktif solution, dosya ve seçili kod bağlamı
+- Aktif solution, dosya, seçili kod ve istek sırasında yenilenebilen Visual Studio Error List bağlamı
 - Plan ve Act modları
 - Yerel agent host + kullanıcıya özel Named Pipe iletişimi
 - Workspace sınırı, secret maskeleme ve tehlikeli komut politikası
@@ -12,6 +12,7 @@
 - Build, test, terminal, Git status/diff, checkpoint ve geri alma
 - Visual Studio iki-panelli diff önizlemesiyle Accept/Reject onayı, SQLite audit/checkpoint/kalıcı oturum geçmişi
 - `AGENTS.md` ve `.company-agent/rules.md` proje kuralları
+- Kaynak denetiminde paylaşılabilen özel ajan profilleri (`.company-agent/agents` ve `.github/agents`)
 
 ## Geliştirme doğrulaması
 
@@ -78,6 +79,12 @@ Sohbete `/deep-planning <istek>` yazarak yerleşik derin planlamayı çağırın
 - `.company-agent/skills/security-review/SKILL.md`
 
 Dosya adı yalnızca harf, sayı, `_` ve `-` içerebilir; 64 KB üzerindeki dosyalar bağlama alınmaz.
+
+## Özel ajan profilleri
+
+Proje kökünde `.company-agent/agents` veya `.github/agents` altında Markdown profil dosyaları oluşturun. Paneldeki **Ajan** listesinden seçilen dosya, her isteğe uzmanlık talimatı olarak eklenir. Örnek: `.company-agent/agents/security-reviewer.md`.
+
+Bu profiller yalnızca proje içinde okunur, alt klasör taraması yapılmaz ve 64 KB sınırı uygulanır. Profil, workspace, secret ve kullanıcı onayı güvenlik sınırlarını değiştiremez.
 
 ## Bağlam ifadeleri
 

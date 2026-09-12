@@ -47,6 +47,13 @@ internal static class VisualStudioContextProvider
         return $"Visual Studio bağlamı:\nSolution: {dte.Solution?.FullName ?? "bilinmiyor"}\nAktif dosya: {document.FullName}\nSeçili kod:\n{(string.IsNullOrWhiteSpace(selectedText) ? "yok" : Redact(selectedText))}\n\nTanılar:\n{CaptureDiagnostics(dte)}";
     }
 
+    public static string GetDiagnostics()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var dte = Package.GetGlobalService(typeof(DTE)) as DTE;
+        return dte == null ? "Visual Studio hata listesi kullanılamıyor." : CaptureDiagnostics(dte);
+    }
+
     public static string ExpandPromptOrSkill(string input)
     {
         ThreadHelper.ThrowIfNotOnUIThread();

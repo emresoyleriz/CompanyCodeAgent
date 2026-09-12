@@ -15,7 +15,7 @@ public static class ToolCallParser
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             if (!root.TryGetProperty("type", out var type) || !string.Equals(type.GetString(), "tool_call", StringComparison.OrdinalIgnoreCase)) return false;
-            if (!root.TryGetProperty("tool", out var toolName) || !Enum.TryParse<AgentToolKind>(toolName.GetString(), true, out var kind)) return false;
+            if (!root.TryGetProperty("tool", out var toolName) || !TryParseToolKind(toolName.GetString(), out var kind)) return false;
             var arguments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (root.TryGetProperty("arguments", out var argumentsElement) && argumentsElement.ValueKind == JsonValueKind.Object)
                 foreach (var item in argumentsElement.EnumerateObject()) arguments[item.Name] = item.Value.ValueKind == JsonValueKind.String ? item.Value.GetString() ?? string.Empty : item.Value.GetRawText();
@@ -26,7 +26,24 @@ public static class ToolCallParser
         catch (JsonException) { return false; }
     }
 
-    private static bool RequiresApproval(AgentToolKind kind) => kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile or AgentToolKind.RunCommand or AgentToolKind.BuildSolution or AgentToolKind.RunTests;
+    private static bool TryParseToolKind(string? value, out AgentToolKind kind)
+    {
+        var normalized = (value ?? string.Empty).Replace("_", string.Empty).Replace("-", string.Empty);
+        return Enum.TryParse(normalized, true, out kind);
+    }
+
+    private static bool RequiresApproval(AgentToolKind kind) => kind is AgentToolKind.WriteFile
+        or AgentToolKind.ApplyPatch
+        or AgentToolKind.DeleteFile
+        or AgentToolKind.RunCommand
+        or AgentToolKind.BuildSolution
+        or AgentToolKind.RunTests
+        or AgentToolKind.RestoreCheckpoint
+        or AgentToolKind.McpListTools
+        or AgentToolKind.McpCallTool
+        or AgentToolKind.CreateGitWorktree
+        or AgentToolKind.WebFetch
+        or AgentToolKind.CreateGitCommit;
 
     private static string? ExtractJson(string value)
     {

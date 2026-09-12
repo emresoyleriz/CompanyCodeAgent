@@ -11,7 +11,7 @@ Bu ürün Cline'dan bağımsız, C#/.NET ile yazılmış Visual Studio coding ag
 | P2 — IDE ↔ Host iletişimi | Tamam | Kullanıcıya özel Named Pipe ile onaylı tool istekleri ve paketlenmiş host |
 | P3 — Context ve araçlar | Devam ediyor | Aktif dosya, seçim, dosya okuma/arama, Git, build/test |
 | P4 — Güvenli dosya değişikliği | Devam ediyor | Patch preview, açık Accept/Reject, checkpoint |
-| P5 — Agent modu | Devam ediyor | Plan/Act, JSON tool calling, iptal ve token takibi |
+| P5 — Agent modu | Devam ediyor | Plan/Act/Autopilot, JSON tool calling, özel ajan profilleri, iptal ve token takibi |
 | P6 — Checkpoint ve geçmiş | Devam ediyor | SQLite oturumları, görev geri alma, audit kaydı |
 | P7 — Genişletilebilirlik | Planlandı | MCP, web araçları, kurallar, görsel girdi, export |
 | P8 — Kurumsal dağıtım | Planlandı | Merkezi politika, rol, imzalama, proxy/sertifika |
@@ -49,17 +49,17 @@ Bu liste Cline ve GitHub Copilot'un herkese açık IDE iş akışlarının clean
 
 | Akış | Mevcut durum | Teslim kabul kriteri |
 |---|---|---|
-| Çok turlu chat ve streaming | Kısmi | Kalıcı oturum geçmişi, durdur ve token görünürlüğü var; yeniden dene, süre/bütçe arayüzü eksik |
+| Çok turlu chat ve streaming | Kısmi | Kalıcı oturum geçmişi, durdur, yeniden dene, token görünürlüğü ve süre/adım sınırı var; konuşma dalı, export ve maliyet hesabı eksik |
 | Plan → Act | Kısmi | Plan'da salt-okunur keşif ve ayrı Plan/Act model seçimi var; yapılandırılmış plan devri eksik |
-| Interactive / Autopilot | Eksik | Araç bazlı onay, kural-temelli otomatik onay ve kesin adım/süre sınırı |
+| Interactive / Autopilot | Kısmi | Araç bazlı onay, güvenlik politikasıyla sınırlı Autopilot ve kesin adım/süre sınırı var; kalıcı kural-temelli otomatik onay profilleri eksik |
 | Dosya değişiklikleri | Kısmi | Tek dosya için VS diff görünümü ve Accept/Reject var; bölüm bazlı seçim ve çoklu dosya transaction eksik |
 | Checkpoint | Kısmi | Her değişiklik öncesi snapshot, zaman çizelgesi, karşılaştır/geri al, görev bağlamı geri alma |
-| IDE bağlamı | Kısmi | Aktif dosya/seçim yanında Error List, build/test çıktısı, açık editör ve git diff bağlamı |
+| IDE bağlamı | Kısmi | Aktif dosya/seçim ve `get_diagnostics` ile güncel Error List var; build/test çıktısı ve açık editör envanteri eksik |
 | Kod inceleme | Eksik | Branch/staged/unstaged diff üzerinde satır-bağlantılı bulgu ve öneri uygulama |
-| Kurallar / prompt dosyaları | Kısmi | Kural dosyaları, `/deep-planning` ve proje prompt/skill dosyaları var; yol-deseni kuralları eksik |
+| Kurallar / prompt / custom agents | Kısmi | Kural dosyaları, `/deep-planning`, proje prompt/skill dosyaları ve kaynak denetimli özel ajan profilleri var; yol-deseni kuralları eksik |
 | Model sağlayıcıları | Kısmi | OpenAI-uyumlu akış yanında sağlayıcı profilleri, Plan/Act model ayrımı, kullanım/maliyet kaydı |
 | MCP / haricî araç | Kısmi | İzinli stdio MCP, güvenli HTTPS web fetch, görsel ek ve allowlist/onay/audit var; HTTP MCP/OAuth ve ayar arayüzü eksik |
-| Git ve görev yönetimi | Kısmi | Diff/status, görev listesi ve izole worktree oluşturma var; commit/PR hazırlığı eksik |
+| Git ve görev yönetimi | Kısmi | Diff/status/staged diff, görev listesi, izole worktree ve yalnızca kullanıcıca stage edilmiş dosyalarla commit var; PR hazırlığı ve uzak sağlayıcı entegrasyonu eksik |
 | Güvenlik ve kurum | Kısmi | Araç bloklama politikası, secret redaction ve audit görünümü var; merkezi dağıtım, proxy/sertifika ve imzalama eksik |
 
 ## Doğrulama standardı

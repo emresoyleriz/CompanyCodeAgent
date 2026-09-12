@@ -24,4 +24,18 @@ public sealed class ToolCallParserTests
         Assert.True(ToolCallParser.TryParse(response, out var call));
         Assert.True(call!.RequiresApproval);
     }
+
+    [Theory]
+    [InlineData("list_files", AgentToolKind.ListFiles, false)]
+    [InlineData("get-git-staged-diff", AgentToolKind.GetGitStagedDiff, false)]
+    [InlineData("create_git_commit", AgentToolKind.CreateGitCommit, true)]
+    [InlineData("web_fetch", AgentToolKind.WebFetch, true)]
+    public void Parses_Canonical_Snake_Or_Kebab_Case_Tool_Names(string tool, AgentToolKind expected, bool requiresApproval)
+    {
+        var response = "{\"type\":\"tool_call\",\"tool\":\"" + tool + "\",\"arguments\":{}}";
+
+        Assert.True(ToolCallParser.TryParse(response, out var call));
+        Assert.Equal(expected, call!.Kind);
+        Assert.Equal(requiresApproval, call.RequiresApproval);
+    }
 }

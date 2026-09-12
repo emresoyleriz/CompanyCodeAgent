@@ -14,6 +14,7 @@ public sealed class WebFetchTool
         for (var redirects = 0; redirects <= 3; redirects++)
         {
             EnsureSafeUri(current);
+            await EnsureResolvesToPublicAddressAsync(current, cancellationToken);
             using var request = new HttpRequestMessage(HttpMethod.Get, current);
             request.Headers.UserAgent.ParseAdd("CompanyCodeAgent/0.1");
             using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -48,6 +49,24 @@ public sealed class WebFetchTool
         var host = uri.Host;
         if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Yerel ağ hedefleri engellendi.");
         if (IPAddress.TryParse(host, out var address) && IsPrivate(address)) throw new UnauthorizedAccessException("Özel IP hedefleri engellendi.");
+    }
+
+    private static async Task EnsureResolvesToPublicAddressAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        if (IPAddress.TryParse(uri.Host, out _)) return;
+
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(uri.DnsSafeHost, cancellationToken);
+        }
+        catch (Exception exception) when (exception is SocketException or ArgumentException)
+        {
+            throw new UnauthorizedAccessException("Web hedefinin DNS adresi güvenli biçimde doğrulanamadı.", exception);
+        }
+
+        if (addresses.Length == 0 || addresses.Any(IsPrivate))
+            throw new UnauthorizedAccessException("Web hedefi özel veya yerel ağ adresine çözülüyor.");
     }
 
     private static bool IsRedirect(HttpStatusCode status) => status is HttpStatusCode.Moved or HttpStatusCode.Redirect or HttpStatusCode.RedirectMethod or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect;

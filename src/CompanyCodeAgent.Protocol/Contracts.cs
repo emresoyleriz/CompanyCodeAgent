@@ -49,14 +49,15 @@ public enum AgentToolKind
     McpCallTool,
     CreateTask,
     UpdateTask,
-    ListTasks
-    ,ListGitWorktrees
-    ,CreateGitWorktree
-    ,ListAuditEvents
-    ,WebFetch
-    ,GetGitBranch
-    ,CreateGitCommit
-    ,GetGitStagedDiff
+    ListTasks,
+    ListGitWorktrees,
+    CreateGitWorktree,
+    ListAuditEvents,
+    WebFetch,
+    GetGitBranch,
+    CreateGitCommit,
+    GetGitStagedDiff,
+    GetDiagnostics
 }
 
 public sealed record ToolCall(
