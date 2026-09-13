@@ -23,7 +23,7 @@ Bu ürün Cline'dan bağımsız, C#/.NET ile yazılmış Visual Studio coding ag
 3. VSIX, host yoksa paketlenmiş yerel host'u başlatır; bozuk/boş istemci bağlantısı host'u sonlandırmaz.
 4. Tool Window aktif solution, dosya ve seçimi `ChatRequest` olarak gönderir.
 5. Host streaming `AgentEvent` mesajlarını VSIX'e iletir; pencere anlık güncellenir.
-6. API anahtarı Windows Credential Manager'da tutulur; loglarda maskelenir.
+6. API anahtarı, Windows kullanıcı hesabına bağlı DPAPI ile yerel ayar deposunda şifrelenir; loglarda maskelenir.
 
 ## P3: araç sözleşmesi ve güvenlik
 
@@ -49,18 +49,18 @@ Bu liste Cline ve GitHub Copilot'un herkese açık IDE iş akışlarının clean
 
 | Akış | Mevcut durum | Teslim kabul kriteri |
 |---|---|---|
-| Çok turlu chat ve streaming | Kısmi | Kalıcı oturum geçmişi, durdur, yeniden dene, token görünürlüğü ve süre/adım sınırı var; konuşma dalı, export ve maliyet hesabı eksik |
-| Plan → Act | Kısmi | Plan'da salt-okunur keşif ve ayrı Plan/Act model seçimi var; yapılandırılmış plan devri eksik |
-| Interactive / Autopilot | Kısmi | Araç bazlı onay, güvenlik politikasıyla sınırlı Autopilot ve kesin adım/süre sınırı var; kalıcı kural-temelli otomatik onay profilleri eksik |
+| Çok turlu chat ve streaming | Kısmi | Kalıcı oturum geçmişi, seçilebilir sohbet dalları, Markdown/JSON konuşma exportu, durdur, yeniden dene, token görünürlüğü, maksimum token bütçesi, kullanıcı tanımlı yaklaşık maliyet ve süre/adım sınırı var; sağlayıcı-fiyatı tabanlı ayrıntılı faturalama eksik |
+| Plan → Act | Kısmi | Plan'da salt-okunur keşif, ayrı Plan/Act model seçimi ve kullanıcı gönderiminden önce düzenlenebilir Plan → Interactive aktarımı var; görev kalemi düzeyinde takip eksik |
+| Interactive / Autopilot | Kısmi | Araç bazlı onay, güvenlik politikasıyla sınırlı Autopilot, kalıcı yalnızca build/test otomatik-onay profili ve kesin adım/süre sınırı var; proje kuralı tabanlı daha ayrıntılı izin profilleri eksik |
 | Dosya değişiklikleri | Kısmi | Tek dosya için VS diff görünümü ve Accept/Reject, en fazla 20 dosyada atomik exact-patch transaction ve ortak checkpoint var; bölüm bazlı seçim eksik |
 | Checkpoint | Kısmi | Her değişiklik öncesi snapshot, zaman çizelgesi, karşılaştır/geri al, görev bağlamı geri alma |
-| IDE bağlamı | Kısmi | Aktif dosya/seçim ve `get_diagnostics` ile güncel Error List var; build/test çıktısı ve açık editör envanteri eksik |
-| Kod inceleme | Kısmi | Branch/staged/unstaged diff üzerinde önem ve dosya:satır biçimli bulgular var; satıra tıklayıp editöre gitme ve öneriyi tek tık uygulama eksik |
-| Kurallar / prompt / custom agents | Kısmi | Kural dosyaları, `/deep-planning`, proje prompt/skill dosyaları ve kaynak denetimli özel ajan profilleri var; yol-deseni kuralları eksik |
-| Model sağlayıcıları | Kısmi | OpenAI-uyumlu akış yanında sağlayıcı profilleri, Plan/Act model ayrımı, kullanım/maliyet kaydı |
+| IDE bağlamı | Kısmi | Aktif dosya/seçim, çözüm içindeki açık editör envanteri, `get_diagnostics` ile güncel Error List ve Output panelinden sınırlı/redacted son build-test çıktısı var; canlı debug/watch bağlamı eksik |
+| Kod inceleme | Kısmi | Branch/staged/unstaged diff üzerinde önem ve dosya:satır biçimli bulgular var; bulgulara tıklayıp editörde ilgili satıra gitme var, öneriyi tek tık uygulama eksik |
+| Kurallar / prompt / custom agents | Kısmi | Kural dosyaları, aktif dosya için glob tabanlı yol-deseni kuralları, `/deep-planning`, proje prompt/skill dosyaları ve kaynak denetimli özel ajan profilleri var; kuruluş çapında merkezi kural dağıtımı eksik |
+| Model sağlayıcıları | Kısmi | OpenAI-uyumlu akış, LM Studio yerel profil düğmesi, Plan/Act model ayrımı ve token kullanım kaydı var; sağlayıcı-fiyatı tabanlı maliyet hesabı eksik |
 | MCP / haricî araç | Kısmi | İzinli stdio ve HTTPS MCP, güvenli HTTPS web fetch, görsel ek ve allowlist/onay/audit var; OAuth ve ayar arayüzü eksik |
 | Git ve görev yönetimi | Kısmi | Diff/status/staged diff, görev listesi, izole worktree ve yalnızca kullanıcıca stage edilmiş dosyalarla commit var; PR hazırlığı ve uzak sağlayıcı entegrasyonu eksik |
-| Güvenlik ve kurum | Kısmi | Araç bloklama politikası, secret redaction, audit görünümü ve kullanıcı onaylı yerel JSON export var; merkezi dağıtım, proxy/sertifika ve imzalama eksik |
+| Güvenlik ve kurum | Kısmi | Araç bloklama politikası, terminal command-prefix allowlist'i, secret redaction, audit görünümü ve kullanıcı onaylı yerel JSON export var; merkezi dağıtım, proxy/sertifika ve imzalama eksik |
 
 ## Doğrulama standardı
 

@@ -30,6 +30,19 @@ internal static class VisualStudioContextProvider
             if (!System.IO.File.Exists(path) || new System.IO.FileInfo(path).Length > 64 * 1024) continue;
             rules.Add(System.IO.File.ReadAllText(path));
         }
+        var activePath = (Package.GetGlobalService(typeof(DTE)) as DTE)?.ActiveDocument?.FullName;
+        var ruleDirectory = Path.Combine(root, ".company-agent", "rules");
+        if (Directory.Exists(ruleDirectory) && !string.IsNullOrWhiteSpace(activePath))
+        {
+            var extensionRule = Path.GetExtension(activePath).TrimStart('.') + ".md";
+            var fileRule = Path.GetFileName(activePath) + ".md";
+            foreach (var name in new[] { "all.md", extensionRule, fileRule }.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var path = Path.Combine(ruleDirectory, name);
+                if (File.Exists(path) && new FileInfo(path).Length <= 64 * 1024) rules.Add(File.ReadAllText(path));
+            }
+        }
+        rules.AddRange(LoadPathPatternRules(root, activePath));
         return rules.Count == 0 ? string.Empty : Redact(string.Join("\n\n", rules));
     }
 
@@ -37,14 +50,17 @@ internal static class VisualStudioContextProvider
     {
         ThreadHelper.ThrowIfNotOnUIThread();
         var dte = Package.GetGlobalService(typeof(DTE)) as DTE;
-        if (dte?.ActiveDocument == null) return "Visual Studio bağlamı: Açık dosya yok.";
+        if (dte == null) return "Visual Studio bağlamı kullanılamıyor.";
+        if (dte.ActiveDocument == null)
+            return $"Visual Studio bağlamı:\nSolution: {dte.Solution?.FullName ?? "bilinmiyor"}\nAktif proje: belirlenemedi\nSolution Explorer seçimi:\n{CaptureSelectedSolutionItems(dte)}\nAktif dosya: yok\nAçık belgeler:\n{CaptureOpenDocuments(dte)}\nSeçili kod:\nyok\n\nTanılar:\n{CaptureDiagnostics(dte)}\n\nSon Build çıktısı:\n{CaptureOutputPane(dte, "Build")}\n\nSon Test çıktısı:\n{CaptureOutputPane(dte, "Tests")}";
 
         var document = dte.ActiveDocument;
         var selection = document.Selection as TextSelection;
         var selectedText = selection?.Text;
         if (selectedText?.Length > 12000) selectedText = selectedText.Substring(0, 12000) + "\n[seçim kısaltıldı]";
+        var activeProject = CaptureActiveProject(dte, document.FullName);
 
-        return $"Visual Studio bağlamı:\nSolution: {dte.Solution?.FullName ?? "bilinmiyor"}\nAktif dosya: {document.FullName}\nSeçili kod:\n{(string.IsNullOrWhiteSpace(selectedText) ? "yok" : Redact(selectedText))}\n\nTanılar:\n{CaptureDiagnostics(dte)}";
+        return $"Visual Studio bağlamı:\nSolution: {dte.Solution?.FullName ?? "bilinmiyor"}\nAktif proje: {activeProject}\nSolution Explorer seçimi:\n{CaptureSelectedSolutionItems(dte)}\nAktif dosya: {document.FullName}\nAçık belgeler:\n{CaptureOpenDocuments(dte)}\nSeçili kod:\n{(string.IsNullOrWhiteSpace(selectedText) ? "yok" : Redact(selectedText))}\n\nTanılar:\n{CaptureDiagnostics(dte)}\n\nSon Build çıktısı:\n{CaptureOutputPane(dte, "Build")}\n\nSon Test çıktısı:\n{CaptureOutputPane(dte, "Tests")}";
     }
 
     public static string GetDiagnostics()
@@ -173,6 +189,111 @@ internal static class VisualStudioContextProvider
             return items.Count == 0 ? "Error List boş." : string.Join("\n", items);
         }
         catch (Exception ex) { return "Tanılar alınamadı: " + ex.Message; }
+    }
+
+    private static string CaptureOpenDocuments(DTE dte)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        try
+        {
+            var solutionPath = dte.Solution?.FullName;
+            var workspace = string.IsNullOrWhiteSpace(solutionPath) ? null : Path.GetDirectoryName(solutionPath);
+            var workspacePrefix = string.IsNullOrWhiteSpace(workspace) ? null : Path.GetFullPath(workspace).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var documents = new List<string>();
+            foreach (Document openDocument in dte.Documents)
+            {
+                if (documents.Count >= 20) break;
+                var fullName = openDocument.FullName;
+                if (!string.IsNullOrWhiteSpace(fullName) && workspacePrefix != null && Path.GetFullPath(fullName).StartsWith(workspacePrefix, StringComparison.OrdinalIgnoreCase)) documents.Add(fullName);
+            }
+            return documents.Count == 0 ? "yok" : string.Join("\n", documents);
+        }
+        catch { return "alınamadı"; }
+    }
+
+    private static string CaptureOutputPane(DTE dte, string paneName)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        try
+        {
+            var outputWindow = dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput).Object as OutputWindow;
+            if (outputWindow == null) return "Output penceresi kullanılamıyor.";
+            foreach (OutputWindowPane pane in outputWindow.OutputWindowPanes)
+            {
+                if (!string.Equals(pane.Name, paneName, StringComparison.OrdinalIgnoreCase)) continue;
+                var document = pane.TextDocument;
+                if (document == null) return "Henüz çıktı yok.";
+                var text = document.StartPoint.CreateEditPoint().GetText(document.EndPoint) ?? string.Empty;
+                if (text.Length > 8000) text = "[Önceki çıktı kısaltıldı]\n" + text.Substring(text.Length - 8000);
+                return string.IsNullOrWhiteSpace(text) ? "Henüz çıktı yok." : Redact(text);
+            }
+            return "Output panelinde '" + paneName + "' bölmesi yok.";
+        }
+        catch (Exception ex) { return "Çıktı alınamadı: " + ex.Message; }
+    }
+
+    private static string CaptureActiveProject(DTE dte, string documentPath)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        try
+        {
+            var item = dte.Solution?.FindProjectItem(documentPath);
+            var project = item?.ContainingProject;
+            return project == null ? "belirlenemedi" : project.Name + " (" + project.FullName + ")";
+        }
+        catch { return "belirlenemedi"; }
+    }
+
+    private static string CaptureSelectedSolutionItems(DTE dte)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        try
+        {
+            var selected = new List<string>();
+            foreach (SelectedItem item in dte.SelectedItems)
+            {
+                if (selected.Count >= 10) break;
+                var projectItem = item.ProjectItem;
+                if (projectItem != null) selected.Add(projectItem.Name + (string.IsNullOrWhiteSpace(projectItem.FileNames[1]) ? string.Empty : " (" + projectItem.FileNames[1] + ")"));
+                else if (item.Project != null) selected.Add(item.Project.Name + " (" + item.Project.FullName + ")");
+            }
+            return selected.Count == 0 ? "yok" : string.Join("\n", selected);
+        }
+        catch { return "alınamadı"; }
+    }
+
+    private static IEnumerable<string> LoadPathPatternRules(string root, string activePath)
+    {
+        if (string.IsNullOrWhiteSpace(activePath)) yield break;
+        var normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var normalizedActive = Path.GetFullPath(activePath);
+        if (!normalizedActive.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)) yield break;
+        var mappingPath = Path.Combine(root, ".company-agent", "rules.paths");
+        if (!File.Exists(mappingPath) || new FileInfo(mappingPath).Length > 64 * 1024) yield break;
+        var relativeActive = normalizedActive.Substring(normalizedRoot.Length).Replace('\\', '/');
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadAllLines(mappingPath))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#", StringComparison.Ordinal)) continue;
+            var separator = line.IndexOf('=');
+            if (separator <= 0 || separator == line.Length - 1) continue;
+            var pattern = line.Substring(0, separator).Trim().Replace('\\', '/');
+            var relativeRule = line.Substring(separator + 1).Trim().Replace('/', Path.DirectorySeparatorChar);
+            if (!GlobMatches(pattern, relativeActive) || !used.Add(relativeRule)) continue;
+            var rulePath = Path.GetFullPath(Path.Combine(normalizedRoot, relativeRule));
+            if (!rulePath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) || !File.Exists(rulePath) || new FileInfo(rulePath).Length > 64 * 1024) continue;
+            yield return File.ReadAllText(rulePath);
+        }
+    }
+
+    private static bool GlobMatches(string pattern, string value)
+    {
+        var expression = "^" + Regex.Escape(pattern)
+            .Replace("\\*\\*", ".*")
+            .Replace("\\*", "[^/]*")
+            .Replace("\\?", "[^/]") + "$";
+        return Regex.IsMatch(value, expression, RegexOptions.IgnoreCase);
     }
 
     private static string Redact(string value)

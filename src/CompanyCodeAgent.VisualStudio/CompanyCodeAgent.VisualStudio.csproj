@@ -45,18 +45,25 @@
   <ItemGroup>
     <None Include="source.extension.vsixmanifest"><SubType>Designer</SubType></None>
     <VSCTCompile Include="CompanyCodeAgent.vsct"><ResourceName>Menus.ctmenu</ResourceName></VSCTCompile>
-    <Content Include="..\CompanyCodeAgent.Host\bin\$(Configuration)\net9.0\**\*.*">
-      <Link>AgentHost\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <IncludeInVSIX>true</IncludeInVSIX>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.0.32112.339" ExcludeAssets="runtime" NoWarn="NU1604" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.14.2101" NoWarn="NU1604" />
   </ItemGroup>
-  <Target Name="BuildAgentHost" BeforeTargets="CreateVsixContainer">
+  <PropertyGroup>
+    <GetVsixSourceItemsDependsOn>IncludeAgentHostContent;$(GetVsixSourceItemsDependsOn)</GetVsixSourceItemsDependsOn>
+  </PropertyGroup>
+  <Target Name="BuildAgentHost">
     <MSBuild Projects="..\CompanyCodeAgent.Host\CompanyCodeAgent.Host.csproj" Targets="Build" Properties="Configuration=$(Configuration)" />
+  </Target>
+  <Target Name="IncludeAgentHostContent" DependsOnTargets="BuildAgentHost">
+    <ItemGroup>
+      <Content Include="..\CompanyCodeAgent.Host\bin\$(Configuration)\net9.0\**\*.*">
+        <Link>AgentHost\%(RecursiveDir)%(Filename)%(Extension)</Link>
+        <IncludeInVSIX>true</IncludeInVSIX>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
   </Target>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />

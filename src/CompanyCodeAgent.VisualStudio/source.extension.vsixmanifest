@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Id="CompanyCodeAgent.VisualStudio" Version="0.1.1" Language="tr-TR" Publisher="YourCompany" />
+    <Identity Id="CompanyCodeAgent.VisualStudio" Version="0.2.0" Language="tr-TR" Publisher="YourCompany" />
     <DisplayName>Company Code Agent</DisplayName>
     <Description xml:space="preserve">Şirket içi LLM ile çalışan güvenli Visual Studio coding agent.</Description>
     <Installation InstalledByMsi="false" />

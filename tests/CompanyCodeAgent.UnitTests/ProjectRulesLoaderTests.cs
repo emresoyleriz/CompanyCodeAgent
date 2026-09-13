@@ -20,6 +20,20 @@ public sealed class ProjectRulesLoaderTests : IDisposable
         Assert.Contains("Use repository naming conventions.", rules);
     }
 
+    [Fact]
+    public async Task Loads_Only_Path_Rules_Matching_The_Active_File()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, ".company-agent", "rules"));
+        await File.WriteAllTextAsync(Path.Combine(_root, ".company-agent", "rules.paths"), "src/**/*.cs=.company-agent/rules/csharp.md\ntests/**=.company-agent/rules/tests.md");
+        await File.WriteAllTextAsync(Path.Combine(_root, ".company-agent", "rules", "csharp.md"), "Use nullable reference types.");
+        await File.WriteAllTextAsync(Path.Combine(_root, ".company-agent", "rules", "tests.md"), "Keep tests deterministic.");
+
+        var rules = await new ProjectRulesLoader(new WorkspaceBoundary(_root)).LoadAsync("src/Services/OrderService.cs");
+
+        Assert.Contains("Use nullable reference types.", rules);
+        Assert.DoesNotContain("Keep tests deterministic.", rules);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

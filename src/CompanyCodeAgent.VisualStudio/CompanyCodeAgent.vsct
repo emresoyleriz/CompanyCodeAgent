@@ -7,6 +7,12 @@
       <Group guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
       </Group>
+      <Group guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentCodeWindowGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
+      <Group guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentItemNodeGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_ITEMNODE" />
+      </Group>
     </Groups>
     <Buttons>
       <Button guid="guidCompanyCodeAgentCommandSet" id="ShowToolWindowCommand" priority="0x0100" type="Button">
@@ -25,6 +31,22 @@
         <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentGroup" />
         <Strings><ButtonText>Agent: Değişiklikleri İncele</ButtonText></Strings>
       </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="AskSelectionContextCommand" priority="0x0100" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentCodeWindowGroup" />
+        <Strings><ButtonText>Company Code Agent: Seçime Sor</ButtonText></Strings>
+      </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="ExplainSelectionContextCommand" priority="0x0110" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentCodeWindowGroup" />
+        <Strings><ButtonText>Company Code Agent: Seçili Kodu Açıkla</ButtonText></Strings>
+      </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="FixSelectionContextCommand" priority="0x0120" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentCodeWindowGroup" />
+        <Strings><ButtonText>Company Code Agent: Seçimi İncele ve Düzelt</ButtonText></Strings>
+      </Button>
+      <Button guid="guidCompanyCodeAgentCommandSet" id="InspectSolutionItemCommand" priority="0x0100" type="Button">
+        <Parent guid="guidCompanyCodeAgentCommandSet" id="CompanyCodeAgentItemNodeGroup" />
+        <Strings><ButtonText>Company Code Agent: Bu Öğeyi İncele</ButtonText></Strings>
+      </Button>
     </Buttons>
   </Commands>
   <Symbols>
@@ -35,6 +57,12 @@
       <IDSymbol name="ExplainSelectionCommand" value="0x0110" />
       <IDSymbol name="FixActiveFileCommand" value="0x0120" />
       <IDSymbol name="ReviewChangesCommand" value="0x0130" />
+      <IDSymbol name="CompanyCodeAgentCodeWindowGroup" value="0x1021" />
+      <IDSymbol name="AskSelectionContextCommand" value="0x0140" />
+      <IDSymbol name="ExplainSelectionContextCommand" value="0x0150" />
+      <IDSymbol name="FixSelectionContextCommand" value="0x0160" />
+      <IDSymbol name="CompanyCodeAgentItemNodeGroup" value="0x1022" />
+      <IDSymbol name="InspectSolutionItemCommand" value="0x0170" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

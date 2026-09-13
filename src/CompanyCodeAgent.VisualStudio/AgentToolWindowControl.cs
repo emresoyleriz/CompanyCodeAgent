@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -10,7 +11,10 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.Shell;
 
 namespace CompanyCodeAgent.VisualStudio;
@@ -19,6 +23,7 @@ public sealed class AgentToolWindowControl : UserControl
 {
     private static readonly HttpClient Http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
     private static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+    private static readonly Regex ReviewLocationPattern = new Regex(@"(?<![\w.])(?<path>[\w][\w ._\\/-]*\.[A-Za-z0-9]{1,12}):(?<line>[1-9]\d*)", RegexOptions.Compiled);
     private readonly TextBox _endpoint = new() { MinWidth = 180 };
     private readonly PasswordBox _apiKey = new() { MinWidth = 130 };
     private readonly ComboBox _models = new() { MinWidth = 140, IsEditable = true };
@@ -27,8 +32,11 @@ public sealed class AgentToolWindowControl : UserControl
     private readonly ComboBox _actModel = new() { MinWidth = 120, IsEditable = true };
     private readonly TextBox _maxSteps = new() { MinWidth = 42, Text = "5" };
     private readonly TextBox _timeoutMinutes = new() { MinWidth = 42, Text = "10" };
+    private readonly TextBox _maxTokens = new() { MinWidth = 58, Text = "50000" };
+    private readonly TextBox _costPerMillion = new() { MinWidth = 58, Text = "0" };
     private readonly ComboBox _mode = new() { MinWidth = 90, ItemsSource = new[] { "Plan", "Interactive", "Autopilot" }, SelectedIndex = 0 };
     private readonly ComboBox _agentProfile = new() { MinWidth = 115, IsEditable = false };
+    private readonly ComboBox _approvalProfile = new() { MinWidth = 122, IsEditable = false };
     private readonly RichTextBox _conversation = new() { IsReadOnly = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     private readonly TextBox _input = new() { MinHeight = 92, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly Button _send = new() { Content = "Gönder", MinWidth = 95 };
@@ -37,6 +45,7 @@ public sealed class AgentToolWindowControl : UserControl
     private AgentSettings _settings;
     private CancellationTokenSource _cancellation;
     private string _lastPrompt = string.Empty;
+    private string _latestPlan = string.Empty;
 
     public AgentToolWindowControl()
     {
@@ -50,11 +59,16 @@ public sealed class AgentToolWindowControl : UserControl
         _actModel.Text = string.IsNullOrWhiteSpace(_settings.ActModel) ? _settings.Model : _settings.ActModel;
         _maxSteps.Text = Clamp(_settings.MaxAgentSteps, 1, 20).ToString();
         _timeoutMinutes.Text = Clamp(_settings.TimeoutMinutes, 1, 60).ToString();
+        _maxTokens.Text = Clamp(_settings.MaxTokens, 1000, 500000).ToString(CultureInfo.InvariantCulture);
+        _costPerMillion.Text = _settings.CostPerMillionTokensUsd.ToString("0.####", CultureInfo.InvariantCulture);
         _agentProfile.Items.Add("Genel");
         _agentProfile.SelectedIndex = 0;
         RefreshAgentProfiles(VisualStudioContextProvider.GetWorkspacePath());
         if (_agentProfile.Items.Cast<object>().OfType<string>().Any(profile => string.Equals(profile, _settings.AgentProfile, StringComparison.OrdinalIgnoreCase)))
             _agentProfile.SelectedItem = _settings.AgentProfile;
+        _approvalProfile.Items.Add("Her işlemi sor");
+        _approvalProfile.Items.Add("Doğrulama otomatik");
+        _approvalProfile.SelectedItem = _approvalProfile.Items.Cast<object>().OfType<string>().FirstOrDefault(profile => string.Equals(profile, _settings.ApprovalProfile, StringComparison.OrdinalIgnoreCase)) ?? "Her işlemi sor";
         ApplyTheme();
         var root = new Grid { Margin = new Thickness(10), Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -71,6 +85,7 @@ public sealed class AgentToolWindowControl : UserControl
         cancel.Click += (_, _) => _cancellation?.Cancel();
         _send.Click += SendClicked;
         _retry.Click += RetryClicked; _retry.Margin = new Thickness(0, 0, 8, 0);
+        _input.PreviewKeyDown += InputKeyDown;
         DockPanel.SetDock(_send, Dock.Right); DockPanel.SetDock(_retry, Dock.Right); DockPanel.SetDock(cancel, Dock.Right);
         footer.Children.Add(_send); footer.Children.Add(_retry); footer.Children.Add(cancel); footer.Children.Add(_status);
         Grid.SetRow(footer, 3); root.Children.Add(footer); Content = root;
@@ -80,15 +95,23 @@ public sealed class AgentToolWindowControl : UserControl
     private FrameworkElement CreateHeader()
     {
         var panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        panel.Children.Add(Labeled("API", _endpoint)); panel.Children.Add(Labeled("Anahtar", _apiKey)); panel.Children.Add(Labeled("Model", _models)); panel.Children.Add(_separateModels); panel.Children.Add(Labeled("Plan modeli", _planModel)); panel.Children.Add(Labeled("Act modeli", _actModel)); panel.Children.Add(Labeled("Mod", _mode)); panel.Children.Add(Labeled("Ajan", _agentProfile)); panel.Children.Add(Labeled("Adım", _maxSteps)); panel.Children.Add(Labeled("Dakika", _timeoutMinutes));
+        panel.Children.Add(Labeled("API", _endpoint)); panel.Children.Add(Labeled("Anahtar", _apiKey)); panel.Children.Add(Labeled("Model", _models)); panel.Children.Add(_separateModels); panel.Children.Add(Labeled("Plan modeli", _planModel)); panel.Children.Add(Labeled("Act modeli", _actModel)); panel.Children.Add(Labeled("Mod", _mode)); panel.Children.Add(Labeled("Ajan", _agentProfile)); panel.Children.Add(Labeled("Onay", _approvalProfile)); panel.Children.Add(Labeled("Adım", _maxSteps)); panel.Children.Add(Labeled("Dakika", _timeoutMinutes)); panel.Children.Add(Labeled("Token", _maxTokens)); panel.Children.Add(Labeled("USD / 1M", _costPerMillion));
         var models = StyledButton("Modelleri yükle", 110); models.Margin = new Thickness(4);
         models.Click += LoadModelsClicked; panel.Children.Add(models);
+        var lmStudio = StyledButton("LM Studio", 78); lmStudio.Margin = new Thickness(4);
+        lmStudio.Click += LmStudioClicked; panel.Children.Add(lmStudio);
+        var testConnection = StyledButton("Bağlantıyı sınama", 112); testConnection.Margin = new Thickness(4);
+        testConnection.Click += TestConnectionClicked; panel.Children.Add(testConnection);
         var history = StyledButton("Geçmiş", 70); history.Margin = new Thickness(4);
         history.Click += HistoryClicked; panel.Children.Add(history);
         var newChat = StyledButton("Yeni sohbet", 85); newChat.Margin = new Thickness(4);
         newChat.Click += NewChatClicked; panel.Children.Add(newChat);
         var conversations = StyledButton("Sohbetler", 75); conversations.Margin = new Thickness(4);
         conversations.Click += ConversationsClicked; panel.Children.Add(conversations);
+        var applyPlan = StyledButton("Planı Act'e aktar", 112); applyPlan.Margin = new Thickness(4);
+        applyPlan.Click += TransferPlanToActClicked; panel.Children.Add(applyPlan);
+        var exportChat = StyledButton("Dışa aktar", 82); exportChat.Margin = new Thickness(4);
+        exportChat.Click += ExportChatClicked; panel.Children.Add(exportChat);
         var tasks = StyledButton("Görevler", 70); tasks.Margin = new Thickness(4);
         tasks.Click += TasksClicked; panel.Children.Add(tasks);
         var checkpoints = StyledButton("Checkpoint'ler", 95); checkpoints.Margin = new Thickness(4);
@@ -151,7 +174,7 @@ public sealed class AgentToolWindowControl : UserControl
     {
         var background = new SolidColorBrush(Color.FromRgb(38, 38, 45));
         var foreground = Brushes.WhiteSmoke;
-        foreach (var control in new Control[] { _endpoint, _apiKey, _models, _planModel, _actModel, _mode, _maxSteps, _timeoutMinutes, _input })
+        foreach (var control in new Control[] { _endpoint, _apiKey, _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile, _maxSteps, _timeoutMinutes, _maxTokens, _costPerMillion, _input })
         {
             control.Background = background;
             control.Foreground = foreground;
@@ -177,7 +200,7 @@ public sealed class AgentToolWindowControl : UserControl
         try
         {
             SaveSettings(); SetStatus("Model listesi yükleniyor…");
-            using var request = CreateRequest(HttpMethod.Get, "v1/models"); using var response = await Http.SendAsync(request); response.EnsureSuccessStatusCode();
+            using var response = await GetModelsWithRetryAsync(); response.EnsureSuccessStatusCode();
             var root = Json.DeserializeObject(await response.Content.ReadAsStringAsync()) as Dictionary<string, object>;
             if (root == null || !root.TryGetValue("data", out var data) || data is not object[] items) throw new InvalidOperationException("API /v1/models yanıtı beklenen biçimde değil.");
             _models.Items.Clear(); _planModel.Items.Clear(); _actModel.Items.Clear();
@@ -194,6 +217,7 @@ public sealed class AgentToolWindowControl : UserControl
         var prompt = _input.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt)) return;
         _lastPrompt = prompt;
+        var isReviewRequest = prompt.IndexOf("Kod incelemesi yap", StringComparison.OrdinalIgnoreCase) >= 0;
         try
         {
             SaveSettings(); _cancellation?.Cancel(); _cancellation = new CancellationTokenSource(); _cancellation.CancelAfter(TimeSpan.FromMinutes(GetTimeoutMinutes())); _send.IsEnabled = false;
@@ -229,7 +253,8 @@ public sealed class AgentToolWindowControl : UserControl
                 new(StringComparer.Ordinal) { ["role"] = "system", ["content"] = context },
                 new(StringComparer.Ordinal) { ["role"] = "user", ["content"] = string.IsNullOrWhiteSpace(imageDataUri) ? (object)expandedPrompt : new object[] { new { type = "text", text = expandedPrompt }, new { type = "image_url", image_url = new { url = imageDataUri } } } }
             };
-            var body = new { model = selectedModel, stream = true, messages };
+            var tokenBudget = GetMaxTokens();
+            var body = new { model = selectedModel, stream = true, max_tokens = tokenBudget, messages };
             using var request = CreateRequest(HttpMethod.Post, "v1/chat/completions"); request.Content = new StringContent(Json.Serialize(body), Encoding.UTF8, "application/json");
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, _cancellation.Token); response.EnsureSuccessStatusCode();
             var fullResponse = new StringBuilder();
@@ -241,28 +266,44 @@ public sealed class AgentToolWindowControl : UserControl
                 var data = line.Substring(6); if (data == "[DONE]") break; totalTokens = Math.Max(totalTokens, ReadTotalTokens(data)); var token = ReadDelta(data); if (!string.IsNullOrEmpty(token)) { fullResponse.Append(token); Write(token, Brushes.White); }
             }
             var assistantResponse = fullResponse.ToString();
+            var usageEvents = new List<int> { totalTokens };
+            var budgetTokens = Math.Max(totalTokens, EstimateOutputTokens(assistantResponse));
             messages.Add(new Dictionary<string, object>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var toolResult = _cancellation.IsCancellationRequested ? string.Empty : await HandleToolCallAsync(assistantResponse, planMode, autopilot);
-            for (var step = 1; step < GetMaxAgentSteps() && !string.IsNullOrWhiteSpace(toolResult) && !_cancellation.IsCancellationRequested; step++)
+            var tokenLimitReached = budgetTokens >= tokenBudget;
+            var toolResult = _cancellation.IsCancellationRequested || tokenLimitReached ? string.Empty : await HandleToolCallAsync(assistantResponse, planMode, autopilot);
+            for (var step = 1; step < GetMaxAgentSteps() && !string.IsNullOrWhiteSpace(toolResult) && !_cancellation.IsCancellationRequested && !tokenLimitReached; step++)
             {
                 Write("\nAgent\n", Brushes.LightGreen);
                 messages.Add(new Dictionary<string, object>(StringComparer.Ordinal) { ["role"] = "user", ["content"] = "Araç sonucu:\n" + Limit(toolResult) + "\nGerekirse bir sonraki tek JSON tool_call döndür. İş bittiyse kullanıcıya kısa, doğrulanabilir sonucu bildir." });
-                var followUp = new { model = selectedModel, stream = true, messages };
+                var remainingTokens = Math.Max(1, tokenBudget - budgetTokens);
+                var followUp = new { model = selectedModel, stream = true, max_tokens = remainingTokens, messages };
                 var streamed = await StreamResponseAsync(followUp);
                 assistantResponse = streamed.Content;
                 totalTokens += streamed.TotalTokens;
+                usageEvents.Add(streamed.TotalTokens);
+                budgetTokens += Math.Max(streamed.TotalTokens, EstimateOutputTokens(assistantResponse));
+                tokenLimitReached = budgetTokens >= tokenBudget;
                 messages.Add(new Dictionary<string, object>(StringComparer.Ordinal) { ["role"] = "assistant", ["content"] = assistantResponse });
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                toolResult = await HandleToolCallAsync(assistantResponse, planMode, autopilot);
+                toolResult = tokenLimitReached ? string.Empty : await HandleToolCallAsync(assistantResponse, planMode, autopilot);
             }
             var hitStepLimit = !_cancellation.IsCancellationRequested && !string.IsNullOrWhiteSpace(toolResult);
+            if (tokenLimitReached)
+                Write("\n[Token bütçesine ulaşıldı. Yeni araç turu başlatılmadı.]\n", Brushes.OrangeRed);
             if (hitStepLimit)
                 Write("\n[Agent adım sınırına ulaştı. Görev tamamlanmış sayılmadı; devam etmek için Tekrarla'yı kullanın.]\n", Brushes.OrangeRed);
+            if (isReviewRequest && !hitStepLimit && !_cancellation.IsCancellationRequested)
+                AppendReviewNavigation(assistantResponse);
+            if (planMode && !hitStepLimit && !_cancellation.IsCancellationRequested && !string.IsNullOrWhiteSpace(assistantResponse))
+                _latestPlan = assistantResponse;
             Write("\n", Brushes.White);
-            SetStatus(_cancellation.IsCancellationRequested ? "Durduruldu." : hitStepLimit ? "Adım sınırı nedeniyle durdu." : totalTokens > 0 ? "Tamamlandı · " + totalTokens + " token" : "Tamamlandı.", hitStepLimit);
+            var costSuffix = totalTokens > 0 && GetCostPerMillion() > 0 ? " · ~$" + (totalTokens * GetCostPerMillion() / 1_000_000m).ToString("0.0000", CultureInfo.InvariantCulture) : string.Empty;
+            var displayTokens = totalTokens > 0 ? totalTokens.ToString(CultureInfo.InvariantCulture) : "~" + budgetTokens.ToString(CultureInfo.InvariantCulture);
+            SetStatus(_cancellation.IsCancellationRequested ? "Durduruldu." : tokenLimitReached ? "Token bütçesi nedeniyle durdu." : hitStepLimit ? "Adım sınırı nedeniyle durdu." : budgetTokens > 0 ? "Tamamlandı · " + displayTokens + " token" + costSuffix : "Tamamlandı.", hitStepLimit || tokenLimitReached);
             if (!_cancellation.IsCancellationRequested) await TrySaveMessageAsync(workspacePath, "assistant", assistantResponse);
-            if (!_cancellation.IsCancellationRequested && totalTokens > 0) await TrySaveUsageAsync(workspacePath, selectedModel, totalTokens);
+            if (!_cancellation.IsCancellationRequested)
+                foreach (var usageTokens in usageEvents) await TrySaveUsageAsync(workspacePath, selectedModel, usageTokens);
         }
         catch (OperationCanceledException) { SetStatus("Durduruldu."); }
         catch (Exception ex) { Write("\n[Hata] " + ex.Message + "\n\n", Brushes.OrangeRed); SetStatus("İstek başarısız.", true); }
@@ -270,6 +311,20 @@ public sealed class AgentToolWindowControl : UserControl
     }
 
     private void SendClicked(object sender, RoutedEventArgs e) => StartSafely(SendAsync, "İstek başarısız.");
+
+    private void InputKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            StartSafely(SendAsync, "İstek başarısız.");
+        }
+        else if (e.Key == Key.Escape && _cancellation != null)
+        {
+            e.Handled = true;
+            _cancellation.Cancel();
+        }
+    }
 
     private void RetryClicked(object sender, RoutedEventArgs e)
     {
@@ -280,11 +335,55 @@ public sealed class AgentToolWindowControl : UserControl
 
     private void LoadModelsClicked(object sender, RoutedEventArgs e) => StartSafely(LoadModelsAsync, "Model listesi alınamadı.");
 
+    private void LmStudioClicked(object sender, RoutedEventArgs e)
+    {
+        _endpoint.Text = "http://127.0.0.1:1234/";
+        _apiKey.Clear();
+        StartSafely(LoadModelsAsync, "LM Studio'ya bağlanılamadı. Developer ekranında server'ın Running olduğundan emin olun.");
+    }
+
+    private void TestConnectionClicked(object sender, RoutedEventArgs e) => StartSafely(TestConnectionAsync, "Bağlantı sınanamadı.");
+
+    private async Task TestConnectionAsync()
+    {
+        try
+        {
+            SaveSettings();
+            SetStatus("Bağlantı sınanıyor…");
+            using var response = await GetModelsWithRetryAsync();
+            response.EnsureSuccessStatusCode();
+            var root = Json.DeserializeObject(await response.Content.ReadAsStringAsync()) as Dictionary<string, object>;
+            var count = root != null && root.TryGetValue("data", out var data) && data is object[] models ? models.Length : 0;
+            Write("\nBağlantı testi\nBaşarılı: " + _endpoint.Text.Trim() + " · " + count + " model bildirildi.\n\n", Brushes.LightGreen);
+            SetStatus("Bağlantı başarılı · " + count + " model bulundu.");
+        }
+        catch (Exception ex)
+        {
+            Write("\nBağlantı testi\nBaşarısız: " + ex.Message + "\nLM Studio kullanıyorsanız Developer server'ın Running olduğundan ve adresin http://127.0.0.1:1234/ olduğundan emin olun.\n\n", Brushes.OrangeRed);
+            SetStatus("Bağlantı başarısız.", true);
+        }
+    }
+
     private void HistoryClicked(object sender, RoutedEventArgs e) => StartSafely(ShowHistoryAsync, "Geçmiş alınamadı.");
 
     private void NewChatClicked(object sender, RoutedEventArgs e) => StartSafely(StartNewChatAsync, "Yeni sohbet başlatılamadı.");
 
     private void ConversationsClicked(object sender, RoutedEventArgs e) => StartSafely(SwitchConversationAsync, "Sohbet değiştirilemedi.");
+
+    private void TransferPlanToActClicked(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_latestPlan))
+        {
+            SetStatus("Aktarılacak tamamlanmış bir Plan sonucu yok.", true);
+            return;
+        }
+        _mode.SelectedItem = "Interactive";
+        _input.Text = "Aşağıdaki planı uygula. Gerekli dosya değişiklikleri ve komutlarda bana önizleme/onay sun.\n\nPlan:\n" + _latestPlan;
+        _input.Focus();
+        SetStatus("Plan Act isteğine aktarıldı; gözden geçirip Gönder'e basın.");
+    }
+
+    private void ExportChatClicked(object sender, RoutedEventArgs e) => StartSafely(ExportChatAsync, "Sohbet dışa aktarılamadı.");
 
     private void TasksClicked(object sender, RoutedEventArgs e) => StartSafely(ShowTasksAsync, "Görevler alınamadı.");
 
@@ -380,7 +479,7 @@ public sealed class AgentToolWindowControl : UserControl
             Write("\nKullanım\nBu oturum için kaydedilmiş token kullanımı yok.\n\n", Brushes.LightSteelBlue);
             return;
         }
-        var lines = new List<string>();
+        var grouped = new Dictionary<string, int[]>(StringComparer.OrdinalIgnoreCase);
         var total = 0;
         foreach (var raw in items)
         {
@@ -388,15 +487,69 @@ public sealed class AgentToolWindowControl : UserControl
             var model = item.TryGetValue("model", out var rawModel) ? rawModel?.ToString() ?? "bilinmiyor" : "bilinmiyor";
             var tokens = item.TryGetValue("tokens", out var rawTokens) ? Convert.ToInt32(rawTokens) : 0;
             total += tokens;
-            lines.Add(model + " · " + tokens + " token");
+            if (!grouped.TryGetValue(model, out var summary)) { summary = new[] { 0, 0 }; grouped[model] = summary; }
+            summary[0] += tokens;
+            summary[1]++;
         }
-        Write("\nKullanım\n" + string.Join("\n", lines) + "\nToplam: " + total + " token\n\n", Brushes.LightSteelBlue);
+        var lines = grouped.OrderBy(item => item.Key).Select(item => item.Key + " · " + item.Value[0] + " token · " + item.Value[1] + " istek").ToList();
+        var cost = GetCostPerMillion() > 0 ? "\nYaklaşık maliyet (geçerli USD/1M fiyatıyla): $" + (total * GetCostPerMillion() / 1_000_000m).ToString("0.0000", CultureInfo.InvariantCulture) : string.Empty;
+        Write("\nKullanım\n" + string.Join("\n", lines) + "\nToplam: " + total + " token" + cost + "\n\n", Brushes.LightSteelBlue);
     }
 
     private async Task<string> TryReadHistoryAsync(string workspacePath)
     {
-        try { return Limit(await GetHostClient(workspacePath).ReadMessagesAsync(workspacePath)); }
+        try { return Limit(await ReadRawHistoryAsync(workspacePath)); }
         catch { return string.Empty; }
+    }
+
+    private async Task<string> ReadRawHistoryAsync(string workspacePath) => await GetHostClient(workspacePath).ReadMessagesAsync(workspacePath);
+
+    private async Task ExportChatAsync()
+    {
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        var workspace = VisualStudioContextProvider.GetWorkspacePath();
+        var rawHistory = await ReadRawHistoryAsync(workspace);
+        var messages = Json.DeserializeObject(rawHistory) as object[];
+        if (messages == null || messages.Length == 0)
+        {
+            SetStatus("Dışa aktarılacak sohbet mesajı yok.", true);
+            return;
+        }
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Sohbeti dışa aktar",
+            Filter = "Markdown dosyası (*.md)|*.md|JSON dosyası (*.json)|*.json",
+            FileName = "company-code-agent-chat-" + DateTime.Now.ToString("yyyyMMdd-HHmm") + ".md",
+            AddExtension = true,
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog() != true) return;
+        var jsonOutput = string.Equals(Path.GetExtension(dialog.FileName), ".json", StringComparison.OrdinalIgnoreCase);
+        var content = jsonOutput ? rawHistory : FormatChatExport(messages, workspace);
+        File.WriteAllText(dialog.FileName, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        Write("\nSohbet dışa aktarıldı: " + dialog.FileName + "\n\n", Brushes.LightSteelBlue);
+        SetStatus("Sohbet dışa aktarıldı.");
+    }
+
+    private static string FormatChatExport(object[] messages, string workspacePath)
+    {
+        var result = new StringBuilder();
+        result.AppendLine("# Company Code Agent sohbet dışa aktarımı");
+        result.AppendLine();
+        result.AppendLine("- Çalışma alanı: `" + workspacePath.Replace("`", "'") + "`");
+        result.AppendLine("- Aktarım: " + DateTime.Now.ToString("O"));
+        result.AppendLine();
+        foreach (var raw in messages)
+        {
+            if (raw is not Dictionary<string, object> message) continue;
+            var role = message.TryGetValue("role", out var rawRole) ? rawRole?.ToString() ?? "bilinmiyor" : "bilinmiyor";
+            var content = message.TryGetValue("content", out var rawContent) ? rawContent?.ToString() ?? string.Empty : string.Empty;
+            result.AppendLine("## " + (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase) ? "Kullanıcı" : "Agent"));
+            result.AppendLine();
+            result.AppendLine(content);
+            result.AppendLine();
+        }
+        return result.ToString();
     }
 
     private async Task StartNewChatAsync()
@@ -519,6 +672,8 @@ public sealed class AgentToolWindowControl : UserControl
 
     private int GetMaxAgentSteps() => int.TryParse(_maxSteps.Text, out var steps) ? Clamp(steps, 1, 20) : 5;
     private int GetTimeoutMinutes() => int.TryParse(_timeoutMinutes.Text, out var minutes) ? Clamp(minutes, 1, 60) : 10;
+    private int GetMaxTokens() => int.TryParse(_maxTokens.Text, out var tokens) ? Clamp(tokens, 1000, 500000) : 50000;
+    private static int EstimateOutputTokens(string value) => string.IsNullOrEmpty(value) ? 0 : Math.Max(1, (value.Length + 3) / 4);
     private static int Clamp(int value, int min, int max) => value < min ? min : value > max ? max : value;
 
     private void StartSafely(Func<Task> action, string errorStatus)
@@ -594,7 +749,7 @@ public sealed class AgentToolWindowControl : UserControl
                 try { VisualStudioDiffPreview.TryOpen(VisualStudioContextProvider.GetWorkspacePath(), toolName?.ToString() ?? string.Empty, arguments); }
                 catch (Exception ex) { Write("\n[Diff önizlemesi açılamadı] " + ex.Message + "\n", Brushes.OrangeRed); }
             }
-            var approved = autopilot || !requiresApproval || MessageBox.Show(BuildApprovalPrompt(toolName?.ToString() ?? "Araç", arguments), "Company Code Agent Önizleme ve Onay", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+            var approved = autopilot || !requiresApproval || IsApprovalProfileAllowed(toolKind) || MessageBox.Show(BuildApprovalPrompt(toolName?.ToString() ?? "Araç", arguments), "Company Code Agent Önizleme ve Onay", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             var workspacePath = VisualStudioContextProvider.GetWorkspacePath();
             var result = await GetHostClient(workspacePath).ExecuteAsync(workspacePath, toolKind, arguments, requiresApproval, approved);
@@ -664,6 +819,8 @@ public sealed class AgentToolWindowControl : UserControl
 
     private static bool IsPlanSafeTool(int toolKind) => toolKind == 0 || toolKind == 1 || toolKind == 2 || toolKind == 3 || toolKind == 4 || toolKind == 11 || toolKind == 12 || toolKind == 14 || toolKind == 15 || toolKind == 18 || toolKind == 19 || toolKind == 20 || toolKind == 21 || toolKind == 23 || toolKind == 25 || toolKind == 27 || toolKind == 28;
 
+    private bool IsApprovalProfileAllowed(int toolKind) => string.Equals(_approvalProfile.SelectedItem as string, "Doğrulama otomatik", StringComparison.OrdinalIgnoreCase) && (toolKind == 9 || toolKind == 10);
+
     private const string ToolContract = "Araç gerektiğinde yalnızca şu JSON'u döndür: {\"type\":\"tool_call\",\"id\":\"benzersiz\",\"tool\":\"AraçAdı\",\"arguments\":{...}}. Araçlar: list_files({path?}), search_files({pattern,path?}), read_file({path}), read_multiple_files({paths}), search_text({query,path?}), get_diagnostics({}), write_file({path,content}), apply_patch({path,expected,replacement}), apply_multi_patch({patchesJson}), delete_file({path}), run_command({command}), build_solution({}), run_tests({}), get_git_diff({}), get_git_staged_diff({}), get_git_status({}), get_git_branch({}), create_git_commit({message}), list_checkpoints({}), compare_checkpoint({checkpointId}), restore_checkpoint({checkpointId}), mcp_list_tools({server}), mcp_call_tool({server,toolName,argumentsJson}), create_task({title,status?}), update_task({id,status}), list_tasks({}), list_git_worktrees({}), create_git_worktree({branch}), list_audit_events({}), export_audit({path}), web_fetch({url}). apply_multi_patch için patchesJson, path/expected/replacement alanlı en fazla 20 farklı dosyadan oluşan JSON dizisidir; tüm patch'ler doğrulanır, biri başarısızsa değişiklikler geri alınır. MCP çağrıları yapılandırılmış ve izinli araçlarla sınırlıdır. web_fetch yalnızca kullanıcı onayıyla HTTPS metin içeriği alır; create_git_commit yalnızca zaten stage edilmiş dosyaları commit eder. export_audit yalnızca workspace içindeki .json dosyasına kullanıcı onayıyla yazar. Kod incelemesinde hem get_git_diff hem get_git_staged_diff ve get_diagnostics kullan. Plan oluştururken create_task kullan; uygulamaya başlarken in_progress, bittiğinde completed durumuna geçir. Bir yanıt için yalnızca tek araç çağrısı döndür; araç gerekmiyorsa normal Türkçe yanıt ver.";
 
     private static string BuildApprovalPrompt(string toolName, IReadOnlyDictionary<string, string> arguments)
@@ -703,7 +860,82 @@ public sealed class AgentToolWindowControl : UserControl
         var key = _apiKey.Password.Trim(); if (!string.IsNullOrWhiteSpace(key)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key); return request;
     }
 
-    private void SaveSettings() { _settings.Endpoint = _endpoint.Text.Trim(); _settings.Model = _models.Text.Trim(); _settings.UseSeparateModeModels = _separateModels.IsChecked == true; _settings.PlanModel = _planModel.Text.Trim(); _settings.ActModel = _actModel.Text.Trim(); _settings.AgentProfile = _agentProfile.SelectedItem as string ?? "Genel"; _settings.MaxAgentSteps = GetMaxAgentSteps(); _settings.TimeoutMinutes = GetTimeoutMinutes(); _settings.SetApiKey(_apiKey.Password); AgentSettingsStore.Save(_settings); }
+    private async Task<HttpResponseMessage> GetModelsWithRetryAsync()
+    {
+        Exception lastError = null;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                using var request = CreateRequest(HttpMethod.Get, "v1/models");
+                var response = await Http.SendAsync(request);
+                if (response.IsSuccessStatusCode || attempt == 1 || ((int)response.StatusCode >= 400 && (int)response.StatusCode < 500)) return response;
+                response.Dispose();
+                lastError = new HttpRequestException("Model listesi geçici HTTP hatası döndürdü: " + (int)response.StatusCode);
+            }
+            catch (HttpRequestException ex) when (attempt == 0) { lastError = ex; }
+            catch (TaskCanceledException ex) when (attempt == 0) { lastError = ex; }
+            if (attempt == 0) await Task.Delay(500);
+        }
+        throw new HttpRequestException("Model listesi iki denemede alınamadı.", lastError);
+    }
+
+    private decimal GetCostPerMillion()
+    {
+        var value = _costPerMillion.Text.Trim().Replace(',', '.');
+        return decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var cost) && cost >= 0 ? cost : 0;
+    }
+
+    private void SaveSettings() { _settings.Endpoint = _endpoint.Text.Trim(); _settings.Model = _models.Text.Trim(); _settings.UseSeparateModeModels = _separateModels.IsChecked == true; _settings.PlanModel = _planModel.Text.Trim(); _settings.ActModel = _actModel.Text.Trim(); _settings.AgentProfile = _agentProfile.SelectedItem as string ?? "Genel"; _settings.ApprovalProfile = _approvalProfile.SelectedItem as string ?? "Her işlemi sor"; _settings.MaxAgentSteps = GetMaxAgentSteps(); _settings.TimeoutMinutes = GetTimeoutMinutes(); _settings.MaxTokens = GetMaxTokens(); _settings.CostPerMillionTokensUsd = GetCostPerMillion(); _settings.SetApiKey(_apiKey.Password); AgentSettingsStore.Save(_settings); }
+
+    private void AppendReviewNavigation(string response)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var workspacePath = VisualStudioContextProvider.GetWorkspacePath();
+        if (string.IsNullOrWhiteSpace(workspacePath) || string.IsNullOrWhiteSpace(response)) return;
+        var locations = ReviewLocationPattern.Matches(response)
+            .Cast<Match>()
+            .Select(match => new { Path = match.Groups["path"].Value.Trim(), Line = int.Parse(match.Groups["line"].Value) })
+            .Where(location => !Path.IsPathRooted(location.Path))
+            .GroupBy(location => location.Path + ":" + location.Line, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .Take(20)
+            .ToList();
+        if (locations.Count == 0) return;
+
+        var paragraph = new Paragraph { Margin = new Thickness(0, 4, 0, 2), Foreground = Brushes.LightSteelBlue };
+        paragraph.Inlines.Add("Bulgulara git: ");
+        foreach (var location in locations)
+        {
+            var targetPath = location.Path;
+            var targetLine = location.Line;
+            var link = new Hyperlink(new Run(targetPath + ":" + targetLine)) { Foreground = Brushes.LightSkyBlue, ToolTip = "Dosyayı bu satırda aç" };
+            link.Click += (_, _) => OpenReviewFinding(targetPath, targetLine);
+            paragraph.Inlines.Add(link);
+            paragraph.Inlines.Add("  ");
+        }
+        _conversation.Document.Blocks.Add(paragraph);
+        _conversation.ScrollToEnd();
+    }
+
+    private void OpenReviewFinding(string relativePath, int line)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        var workspacePath = VisualStudioContextProvider.GetWorkspacePath();
+        if (string.IsNullOrWhiteSpace(workspacePath) || Path.IsPathRooted(relativePath)) return;
+        var root = Path.GetFullPath(workspacePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+        if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(fullPath))
+        {
+            SetStatus("İnceleme konumu çözüm klasöründe bulunamadı: " + relativePath, true);
+            return;
+        }
+        var dte = Package.GetGlobalService(typeof(EnvDTE.DTE)) as EnvDTE.DTE;
+        dte?.ItemOperations.OpenFile(fullPath);
+        var selection = dte?.ActiveDocument?.Selection as EnvDTE.TextSelection;
+        selection?.GotoLine(line, true);
+    }
+
     private void Write(string value, Brush color) { _conversation.Foreground = color; _conversation.AppendText(value); _conversation.ScrollToEnd(); }
     private void SetStatus(string value, bool error = false) { _status.Text = value; _status.Foreground = error ? Brushes.OrangeRed : Brushes.Gray; }
 

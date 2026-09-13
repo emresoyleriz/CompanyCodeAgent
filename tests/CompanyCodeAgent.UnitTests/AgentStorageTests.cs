@@ -110,6 +110,20 @@ public sealed class AgentStorageTests : IDisposable
         Assert.Equal(12, item.Tokens);
     }
 
+    [Fact]
+    public void Usage_Keeps_Each_Request_For_Accurate_Request_Counts()
+    {
+        Directory.CreateDirectory(_root);
+        var storage = new AgentStorage(Path.Combine(_root, "state.db"));
+        storage.RecordUsage("session", "model-a", 12);
+        storage.RecordUsage("session", "model-a", 0);
+
+        var usage = storage.ReadUsage("session");
+
+        Assert.Equal(2, usage.Count);
+        Assert.Equal(12, usage.Sum(item => item.Tokens));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

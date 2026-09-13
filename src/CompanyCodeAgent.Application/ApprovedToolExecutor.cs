@@ -16,7 +16,8 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
             return new ToolResult(call.Id, false, "İşlem kullanıcı tarafından reddedildi.");
         try
         {
-            (projectPolicy ?? ProjectPolicy.Load(boundary)).EnsureAllowed(call.Kind.ToString());
+            var policy = projectPolicy ?? ProjectPolicy.Load(boundary);
+            policy.EnsureAllowed(call.Kind.ToString());
             string? checkpointId = null;
             if (storage != null && call.Kind is AgentToolKind.WriteFile or AgentToolKind.ApplyPatch or AgentToolKind.DeleteFile or AgentToolKind.ApplyMultiPatch)
                 checkpointId = storage.CreateCheckpoint(sessionId, boundary.RootPath, GetCheckpointPaths(call));
@@ -31,7 +32,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
                 AgentToolKind.ApplyPatch => await PatchAsync(call, cancellationToken),
                 AgentToolKind.ApplyMultiPatch => await MultiPatchAsync(call, cancellationToken),
                 AgentToolKind.DeleteFile => await DeleteAsync(call),
-                AgentToolKind.RunCommand or AgentToolKind.BuildSolution or AgentToolKind.RunTests => await RunCommandAsync(call, cancellationToken),
+                AgentToolKind.RunCommand or AgentToolKind.BuildSolution or AgentToolKind.RunTests => await RunCommandAsync(call, policy, cancellationToken),
                 AgentToolKind.GetGitDiff => await RunGitDiffAsync(cancellationToken),
                 AgentToolKind.GetGitStatus => await RunGitAsync("status --short", cancellationToken),
                 AgentToolKind.RestoreCheckpoint => RestoreCheckpoint(call, sessionId),
@@ -116,7 +117,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
         return "Dosya silindi.";
     }
 
-    private async Task<string> RunCommandAsync(ToolCall call, CancellationToken cancellationToken)
+    private async Task<string> RunCommandAsync(ToolCall call, ProjectPolicy projectPolicy, CancellationToken cancellationToken)
     {
         var command = call.Kind switch
         {
@@ -125,6 +126,7 @@ public sealed class ApprovedToolExecutor(WorkspaceTools tools, WorkspaceBoundary
             _ => Required(call, "command")
         };
         commandPolicy.EnsureAllowed(command);
+        projectPolicy.EnsureCommandAllowed(command);
         var isWindows = OperatingSystem.IsWindows();
         var start = new ProcessStartInfo(isWindows ? "cmd.exe" : "/bin/sh", isWindows ? "/c " + command : "-c \"" + command.Replace("\"", "\\\"") + "\"")
         {

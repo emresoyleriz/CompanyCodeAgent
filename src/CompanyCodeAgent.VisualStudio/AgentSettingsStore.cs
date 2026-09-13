@@ -16,7 +16,10 @@ internal sealed class AgentSettings
     public string ActModel { get; set; } = string.Empty;
     public int MaxAgentSteps { get; set; } = 5;
     public int TimeoutMinutes { get; set; } = 10;
+    public int MaxTokens { get; set; } = 50000;
+    public decimal CostPerMillionTokensUsd { get; set; }
     public string AgentProfile { get; set; } = "Genel";
+    public string ApprovalProfile { get; set; } = "Her işlemi sor";
     public Dictionary<string, string> ConversationIds { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, List<string>> ConversationHistory { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
     public string ProtectedApiKey { get; set; } = string.Empty;

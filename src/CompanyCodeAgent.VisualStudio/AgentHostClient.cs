@@ -34,7 +34,8 @@ internal sealed class AgentHostClient
         catch (IOException) { }
 
         await EnsureHostStartedAsync();
-        return await SendAsync(workspacePath, toolKind, arguments, requiresApproval, approved, 5000);
+        try { return await SendAsync(workspacePath, toolKind, arguments, requiresApproval, approved, 5000); }
+        catch { ResetHostStartAttempt(); throw; }
     }
 
     public async Task SaveMessageAsync(string workspacePath, string role, string content)
@@ -65,7 +66,8 @@ internal sealed class AgentHostClient
         catch (TimeoutException) { }
         catch (IOException) { }
         await EnsureHostStartedAsync();
-        return await SendOperationAsync(workspacePath, operation, role, content, 5000);
+        try { return await SendOperationAsync(workspacePath, operation, role, content, 5000); }
+        catch { ResetHostStartAttempt(); throw; }
     }
 
     private async Task<HostToolResult> SendAsync(string workspacePath, int toolKind, IDictionary<string, string> arguments, bool requiresApproval, bool approved, int timeoutMilliseconds)
@@ -133,6 +135,11 @@ internal sealed class AgentHostClient
         if (!File.Exists(hostDll)) throw new FileNotFoundException("Yerel agent host pakette bulunamadı.", hostDll);
         Process.Start(new ProcessStartInfo("dotnet", "\"" + hostDll + "\"") { UseShellExecute = false, CreateNoWindow = true });
         await Task.Delay(600);
+    }
+
+    private static void ResetHostStartAttempt()
+    {
+        lock (HostStartGate) _hostStartAttempted = false;
     }
 
     internal static string CreateSessionId(string workspacePath)

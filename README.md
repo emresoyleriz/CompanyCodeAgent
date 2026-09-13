@@ -1,3 +1,7 @@
+Kurulum, LM Studio bağlantısı ve Visual Studio üzerinde manuel kabul adımları için [manuel doğrulama senaryolarına](docs/MANUAL-VALIDATION.md) bakın.
+
+Kurulacak paket: `src/CompanyCodeAgent.VisualStudio/bin/Release/CompanyCodeAgent.VisualStudio.vsix`.
+
 ## Çalışan özellikler
 
 - OpenAI-uyumlu model listeleme ve SSE streaming chat
@@ -51,9 +55,23 @@ Proje politikası için isteğe bağlı `.company-agent/policy.json` oluşturabi
 
 Engellenen araçlar kullanıcı onayı veya Autopilot seçimiyle de çalıştırılamaz.
 
+Terminal komutlarını izinli öneklerle sınırlamak için aynı dosyada `allowedCommandPrefixes` kullanın:
+
+```json
+{
+  "allowedCommandPrefixes": ["dotnet", "git status", "git diff"]
+}
+```
+
+Bu liste etkinse yalnızca listedeki önekle başlayan komutlar çalışır; `&&`, `|`, `;`, `&` ve çok satırlı shell zincirleri reddedilir. `build_solution` ve `run_tests` sırasıyla `dotnet build` ve `dotnet test` kullandığından, allowlist kullanırken `dotnet` öneğini ekleyin.
+
 ## Audit dışa aktarma
 
 Agent, `export_audit({"path":"artifacts/audit.json"})` ile mevcut workspace içindeki `.json` hedefine oturum audit kaydını dışa aktarabilir. Bu işlem açık kullanıcı onayı ister; kayıtlar zaten secret-redacted biçimde saklanır ve araç herhangi bir uzak hedefe veri göndermez.
+
+## Token ve maliyet görünürlüğü
+
+Paneldeki **Kullanım** düğmesi aktif sohbet dalındaki token kullanımını ve istek sayısını model bazında gösterir. Her model çağrısı ayrı kaydedilir; kullanım bilgisi vermeyen yerel sağlayıcı çağrıları da istek sayısına dahildir. Ücretli bir sağlayıcı kullanılıyorsa üstteki **USD / 1M** alanına toplam bir milyon token için fiyat girilebilir; gösterilen maliyet yaklaşık değerdir ve model sağlayıcısından fiyat veya fatura verisi çekmez. Yerel modeller için alanı `0` bırakın. **Token** alanı görev başına bütçeyi belirler: değer OpenAI-uyumlu istekte `max_tokens` olarak gönderilir ve kullanım bilgisi gelmese dahi çıktı boyutuna göre muhafazakâr tahmini sayaç yeni araç turunu durdurur.
 
 ## Kullanım
 
@@ -61,7 +79,26 @@ Paneldeki **Kullanım** düğmesi, mevcut solution oturumunda model bazında kay
 
 ## Sohbet dalları
 
-Paneldeki **Yeni sohbet** düğmesi aktif solution için yeni, ayrı bir konuşma oturumu başlatır. Önceki sohbet, görevler, checkpoint’ler, audit ve kullanım kayıtları silinmez. **Sohbetler** düğmesiyle önceki bir dal seçilip tekrar açılabilir; **Geçmiş** düğmesi yalnızca aktif sohbet dalını gösterir.
+Paneldeki **Yeni sohbet** düğmesi aktif solution için yeni, ayrı bir konuşma oturumu başlatır. Önceki sohbet, görevler, checkpoint’ler, audit ve kullanım kayıtları silinmez. **Sohbetler** düğmesiyle önceki bir dal seçilip tekrar açılabilir; **Geçmiş** düğmesi yalnızca aktif sohbet dalını gösterir. **Dışa aktar** düğmesi, kullanıcının seçtiği yerel dosyaya aktif dalı Markdown veya ham JSON olarak kaydeder; bu işlem hiçbir veriyi ağa göndermez.
+
+## Plan → Act
+
+**Plan** modunda istek gönderin; agent yalnızca keşif araçlarını kullanarak yaklaşımı üretir. Sonuç uygun olduğunda **Planı Act'e aktar** düğmesi planı düzenlenebilir giriş alanına taşır ve modu **Interactive** yapar. Kullanıcı metni gözden geçirip **Gönder** demeden hiçbir dosya değişikliği veya komut çalışmaz.
+
+## Onay profili
+
+**Onay** alanındaki varsayılan **Her işlemi sor** seçeneği tüm etkili araçlar için onay ister. **Doğrulama otomatik** seçeneği yalnızca `build_solution` ve `run_tests` çağrılarını otomatik onaylar. Dosya yazma/silme, genel terminal komutu, Git commit, checkpoint geri alma, MCP, web erişimi ve audit dışa aktarımı bu profilde de kullanıcı onayı ister.
+
+## Dosya yolu kuralları
+
+Aktif dosyaya göre ek proje talimatı yüklemek için `.company-agent/rules.paths` dosyasını kullanın. Her satır `glob=rule-dosyası` biçimindedir:
+
+```text
+src/**/*.cs=.company-agent/rules/csharp.md
+tests/**=.company-agent/rules/tests.md
+```
+
+Yorumlar `#` ile başlar. Eşleşen kural dosyaları yalnızca solution kökü içinden, 64 KB sınırıyla okunur.
 
 ## Çoklu dosya değişiklikleri
 
@@ -83,6 +120,10 @@ Agent, `apply_multi_patch` ile en fazla 20 mevcut dosyada bir transaction olarak
   ]
 }
 ```
+
+## LM Studio ile yerel model
+
+LM Studio’da bir modeli yükleyin ve **Developer** ekranından local server’ı başlatın. Paneldeki **LM Studio** düğmesi endpoint’i otomatik olarak `http://127.0.0.1:1234/` yapar, API anahtarını temizler ve OpenAI-uyumlu `/v1/models` listesini çağırır. Model listeden seçildikten sonra sohbet başlatılabilir. **Bağlantıyı sınama** düğmesi endpoint’in erişilebilir olduğunu ve kaç model bildirdiğini gösterir; geçici ağ/5xx hatalarında model listesi isteği bir kez yeniden denenir. `api/v1` adresini panelde yazmayın; uzantı OpenAI-uyumlu `v1` yolunu kendisi ekler.
 
 Uzak MCP için `command` yerine HTTPS `url` kullanın:
 
@@ -112,13 +153,19 @@ Dosya adı yalnızca harf, sayı, `_` ve `-` içerebilir; 64 KB üzerindeki dosy
 
 ## Kod inceleme
 
-**Tools → Company Code Agent → Review Changes** komutu branch ile staged/unstaged Git diff'ini Plan modunda inceler. Bulgular önem seviyesi ve `dosya:satır` konumuyla döner; değişiklikten kaynaklanan doğrulanabilir hata, güvenlik açığı veya test eksikliği yoksa açıkça `BULGU YOK` sonucu verir.
+**Tools → Company Code Agent → Review Changes** komutu branch ile staged/unstaged Git diff'ini Plan modunda inceler. Bulgular önem seviyesi ve `dosya:satır` konumuyla döner; sonuç altındaki **Bulgulara git** bağlantısına tıklamak ilgili dosyayı Visual Studio'da güvenle o satırda açar. Değişiklikten kaynaklanan doğrulanabilir hata, güvenlik açığı veya test eksikliği yoksa açıkça `BULGU YOK` sonucu verir.
+
+Kod editöründe sağ tıklayınca **Company Code Agent: Seçime Sor**, **Seçili Kodu Açıkla** ve **Seçimi İncele ve Düzelt** komutları görünür. Komutlar Tool Window’u açar ve seçili kod/aktif dosya bağlamını otomatik ekler; düzeltme talebi de kullanıcı **Gönder** demeden çalıştırılmaz.
+
+Solution Explorer’da bir proje, klasör veya dosyaya sağ tıklayınca **Company Code Agent: Bu Öğeyi İncele** komutu görünür. Seçilen öğe agent bağlamına eklenir ve inceleme Plan modunda açılır.
 
 ## Özel ajan profilleri
 
 Proje kökünde `.company-agent/agents` veya `.github/agents` altında Markdown profil dosyaları oluşturun. Paneldeki **Ajan** listesinden seçilen dosya, her isteğe uzmanlık talimatı olarak eklenir. Örnek: `.company-agent/agents/security-reviewer.md`.
 
 Bu profiller yalnızca proje içinde okunur, alt klasör taraması yapılmaz ve 64 KB sınırı uygulanır. Profil, workspace, secret ve kullanıcı onayı güvenlik sınırlarını değiştiremez.
+
+Aktif dosyaya göre ek kurallar için `.company-agent/rules` içine `all.md`, uzantı için `cs.md` veya tek dosya için `Program.cs.md` koyabilirsiniz. Yalnızca aktif dosyayla eşleşen bu küçük kural dosyaları sistem bağlamına eklenir.
 
 ## Bağlam ifadeleri
 
