@@ -37,6 +37,8 @@ public sealed class AgentToolWindowControl : UserControl
     private readonly ComboBox _mode = new() { MinWidth = 90, IsEditable = true, IsReadOnly = true, ItemsSource = new[] { "Plan", "Interactive", "Autopilot" }, SelectedIndex = 0 };
     private readonly ComboBox _agentProfile = new() { MinWidth = 115, IsEditable = true, IsReadOnly = true };
     private readonly ComboBox _approvalProfile = new() { MinWidth = 122, IsEditable = true, IsReadOnly = true };
+    private readonly ComboBox _composerMode = new() { MinWidth = 92, IsEditable = true, IsReadOnly = true, ItemsSource = new[] { "Plan", "Interactive", "Autopilot" } };
+    private readonly ComboBox _composerModel = new() { MinWidth = 155, IsEditable = true };
     private readonly RichTextBox _conversation = new() { IsReadOnly = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     private readonly TextBox _input = new() { MinHeight = 92, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly Button _send = new() { Content = "Gönder", MinWidth = 95 };
@@ -71,12 +73,16 @@ public sealed class AgentToolWindowControl : UserControl
         _approvalProfile.Items.Add("Her işlemi sor");
         _approvalProfile.Items.Add("Doğrulama otomatik");
         _approvalProfile.SelectedItem = _approvalProfile.Items.Cast<object>().OfType<string>().FirstOrDefault(profile => string.Equals(profile, _settings.ApprovalProfile, StringComparison.OrdinalIgnoreCase)) ?? "Her işlemi sor";
+        _composerMode.SelectedItem = _mode.SelectedItem;
+        _composerModel.Text = _models.Text;
+        _composerMode.SelectionChanged += (_, _) => { if (_composerMode.SelectedItem != null) _mode.SelectedItem = _composerMode.SelectedItem; };
+        _composerModel.SelectionChanged += (_, _) => { if (!string.IsNullOrWhiteSpace(_composerModel.Text)) _models.Text = _composerModel.Text; };
+        _composerModel.LostFocus += (_, _) => _models.Text = _composerModel.Text;
         ApplyTheme();
-        var root = new Grid { Background = new SolidColorBrush(Color.FromRgb(24, 24, 24)) };
+        var root = new Grid { Background = AgentUiTheme.Background };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var header = CreateHeader();
         Grid.SetRow(header, 0); root.Children.Add(header);
@@ -84,23 +90,36 @@ public sealed class AgentToolWindowControl : UserControl
         _conversation.Margin = new Thickness(14, 12, 14, 0);
         _conversation.Padding = new Thickness(6);
         Grid.SetRow(_conversation, 2); root.Children.Add(_conversation);
-        var inputShell = new Border
-        {
-            Margin = new Thickness(14, 10, 14, 0), Padding = new Thickness(10, 6, 10, 4),
-            Background = new SolidColorBrush(Color.FromRgb(36, 36, 36)), BorderBrush = new SolidColorBrush(Color.FromRgb(78, 78, 78)),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Child = _input
-        };
-        Grid.SetRow(inputShell, 3); root.Children.Add(inputShell);
-        var footer = new DockPanel { Margin = new Thickness(14, 5, 14, 12) };
+        var composer = CreateComposer();
+        Grid.SetRow(composer, 3); root.Children.Add(composer); Content = root;
+        Write("Hazır. Dosya ve seçili kod bağlamı otomatik eklenir. Ctrl+Enter ile gönderin.\n\n", AgentUiTheme.SecondaryText);
+    }
+
+    private FrameworkElement CreateComposer()
+    {
+        var composer = new Border { Margin = new Thickness(14, 10, 14, 12), Padding = new Thickness(10, 7, 10, 7), Background = AgentUiTheme.Elevated, BorderBrush = AgentUiTheme.Border, BorderThickness = new Thickness(1), CornerRadius = AgentUiTheme.RadiusMedium };
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var contextBar = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
+        var review = CompactButton("İncele", 54); review.Click += (_, _) => { _input.Text = "Kod incelemesi yap"; _input.Focus(); }; DockPanel.SetDock(review, Dock.Right); contextBar.Children.Add(review);
+        var context = CompactButton("Bağlam: aktif dosya", 126); context.Click += AddContextClicked; contextBar.Children.Add(context);
+        Grid.SetRow(contextBar, 0); layout.Children.Add(contextBar);
+        Grid.SetRow(_input, 1); layout.Children.Add(_input);
+        var footer = new DockPanel { Margin = new Thickness(0, 5, 0, 0) };
         var cancel = StyledButton("Durdur", 70); cancel.Margin = new Thickness(0, 0, 8, 0);
         cancel.Click += (_, _) => _cancellation?.Cancel();
         _send.Click += SendClicked;
         _retry.Click += RetryClicked; _retry.Margin = new Thickness(0, 0, 8, 0);
         _input.PreviewKeyDown += InputKeyDown;
         DockPanel.SetDock(_send, Dock.Right); DockPanel.SetDock(_retry, Dock.Right); DockPanel.SetDock(cancel, Dock.Right);
-        footer.Children.Add(_send); footer.Children.Add(_retry); footer.Children.Add(cancel); footer.Children.Add(_status);
-        Grid.SetRow(footer, 4); root.Children.Add(footer); Content = root;
-        Write("Hazır. Dosya ve seçili kod bağlamı otomatik eklenir. Ctrl+Enter ile gönderin.\n\n", Brushes.LightSteelBlue);
+        footer.Children.Add(_send); footer.Children.Add(_retry); footer.Children.Add(cancel);
+        var attach = CompactButton("Dosya ekle", 74); attach.Margin = new Thickness(0, 0, 8, 0); attach.Click += AttachFileClicked; DockPanel.SetDock(attach, Dock.Right); footer.Children.Add(attach);
+        var selectors = new StackPanel { Orientation = Orientation.Horizontal }; selectors.Children.Add(_composerMode); _composerModel.Margin = new Thickness(8, 0, 0, 0); selectors.Children.Add(_composerModel); footer.Children.Add(selectors);
+        Grid.SetRow(footer, 2); layout.Children.Add(footer);
+        composer.Child = layout;
+        return composer;
     }
 
     private FrameworkElement CreateHeader()
@@ -115,7 +134,7 @@ public sealed class AgentToolWindowControl : UserControl
         var history = StyledButton("Geçmiş", 64); history.Margin = new Thickness(4); history.Click += HistoryClicked; actions.Children.Add(history);
         var conversations = StyledButton("Sohbetler", 72); conversations.Margin = new Thickness(4); conversations.Click += ConversationsClicked; actions.Children.Add(conversations);
         var newChat = StyledButton("+ Yeni sohbet", 92); newChat.Margin = new Thickness(4); newChat.Click += NewChatClicked; actions.Children.Add(newChat);
-        _settingsButton = StyledButton("⚙ Ayarlar", 82); _settingsButton.Margin = new Thickness(4); _settingsButton.Click += ToggleSettingsClicked; actions.Children.Add(_settingsButton);
+        _settingsButton = StyledButton("Ayarlar", 72); _settingsButton.Margin = new Thickness(4); _settingsButton.Click += ToggleSettingsClicked; actions.Children.Add(_settingsButton);
         DockPanel.SetDock(actions, Dock.Right); header.Children.Add(actions);
 
         var drawerContent = new StackPanel();
@@ -163,7 +182,38 @@ public sealed class AgentToolWindowControl : UserControl
     {
         var open = _settingsDrawer.Visibility != Visibility.Visible;
         _settingsDrawer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        _settingsButton.Content = open ? "Ayarları kapat" : "⚙ Ayarlar";
+        _settingsButton.Content = open ? "Ayarları kapat" : "Ayarlar";
+    }
+
+    private void AddContextClicked(object sender, RoutedEventArgs e)
+    {
+        _input.Text = string.IsNullOrWhiteSpace(_input.Text) ? "@file:" : _input.Text + " @file:";
+        _input.CaretIndex = _input.Text.Length;
+        _input.Focus();
+        SetStatus("Bir çalışma alanı dosya yolu yazın; aktif dosya ve seçim zaten otomatik bağlama eklenir.");
+    }
+
+    private void AttachFileClicked(object sender, RoutedEventArgs e)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (!VisualStudioContextProvider.TryGetWorkspacePath(out var workspace))
+        {
+            SetStatus("Dosya eklemek için önce bir solution veya çalışma alanı dosyası açın.", true);
+            return;
+        }
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "Çalışma alanından dosya ekle", InitialDirectory = workspace };
+        if (dialog.ShowDialog() != true) return;
+        var root = Path.GetFullPath(workspace).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var selected = Path.GetFullPath(dialog.FileName);
+        if (!selected.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus("Yalnızca açık çalışma alanındaki dosyalar bağlama eklenebilir.", true);
+            return;
+        }
+        var relative = selected.Substring(root.Length);
+        _input.Text = (string.IsNullOrWhiteSpace(_input.Text) ? string.Empty : _input.Text + " ") + "@file:\"" + relative + "\"";
+        _input.CaretIndex = _input.Text.Length;
+        _input.Focus();
     }
 
     private void RefreshAgentProfiles(string workspacePath)
@@ -214,22 +264,22 @@ public sealed class AgentToolWindowControl : UserControl
 
     private void ApplyTheme()
     {
-        var background = new SolidColorBrush(Color.FromRgb(38, 38, 38));
-        var foreground = Brushes.WhiteSmoke;
-        foreach (var control in new Control[] { _endpoint, _apiKey, _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile, _maxSteps, _timeoutMinutes, _maxTokens, _costPerMillion, _input })
+        var background = AgentUiTheme.Surface;
+        var foreground = AgentUiTheme.Text;
+        foreach (var control in new Control[] { _endpoint, _apiKey, _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile, _composerMode, _composerModel, _maxSteps, _timeoutMinutes, _maxTokens, _costPerMillion, _input })
         {
             control.Background = background;
             control.Foreground = foreground;
-            control.BorderBrush = new SolidColorBrush(Color.FromRgb(80, 85, 100));
+            control.BorderBrush = AgentUiTheme.Border;
             control.Margin = new Thickness(0, 2, 0, 0);
         }
         _input.Background = Brushes.Transparent;
         _input.BorderThickness = new Thickness(0);
-        _input.Foreground = Brushes.WhiteSmoke;
+        _input.Foreground = AgentUiTheme.Text;
         _input.MinHeight = 72;
         _input.ToolTip = "Mesajınızı yazın — Ctrl+Enter ile gönderin";
-        foreach (var comboBox in new[] { _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile }) ApplyComboBoxTheme(comboBox);
-        _conversation.Foreground = Brushes.WhiteSmoke;
+        foreach (var comboBox in new[] { _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile, _composerMode, _composerModel }) ApplyComboBoxTheme(comboBox);
+        _conversation.Foreground = AgentUiTheme.Text;
         _conversation.FontSize = 13;
         _send.Background = new SolidColorBrush(Color.FromRgb(79, 70, 229));
         _send.Foreground = Brushes.White;
@@ -264,7 +314,12 @@ public sealed class AgentToolWindowControl : UserControl
 
     private static Button StyledButton(string content, double minWidth)
     {
-        return new Button { Content = content, MinWidth = minWidth, Background = new SolidColorBrush(Color.FromRgb(48, 48, 48)), Foreground = Brushes.WhiteSmoke, BorderBrush = new SolidColorBrush(Color.FromRgb(82, 82, 82)), Padding = new Thickness(8, 3, 8, 3) };
+        return new Button { Content = content, MinWidth = minWidth, Background = AgentUiTheme.Surface, Foreground = AgentUiTheme.Text, BorderBrush = AgentUiTheme.Border, Padding = new Thickness(8, 3, 8, 3) };
+    }
+
+    private static Button CompactButton(string content, double minWidth)
+    {
+        return new Button { Content = content, MinWidth = minWidth, Background = Brushes.Transparent, Foreground = AgentUiTheme.SecondaryText, BorderBrush = Brushes.Transparent, Padding = new Thickness(5, 2, 5, 2), FontSize = 11 };
     }
 
     private async Task LoadModelsAsync()
@@ -275,9 +330,10 @@ public sealed class AgentToolWindowControl : UserControl
             using var response = await GetModelsWithRetryAsync(); response.EnsureSuccessStatusCode();
             var root = Json.DeserializeObject(await response.Content.ReadAsStringAsync()) as Dictionary<string, object>;
             if (root == null || !root.TryGetValue("data", out var data) || data is not object[] items) throw new InvalidOperationException("API /v1/models yanıtı beklenen biçimde değil.");
-            _models.Items.Clear(); _planModel.Items.Clear(); _actModel.Items.Clear();
-            foreach (var item in items) if (item is Dictionary<string, object> model && model.TryGetValue("id", out var id)) { _models.Items.Add(id.ToString()); _planModel.Items.Add(id.ToString()); _actModel.Items.Add(id.ToString()); }
+            _models.Items.Clear(); _planModel.Items.Clear(); _actModel.Items.Clear(); _composerModel.Items.Clear();
+            foreach (var item in items) if (item is Dictionary<string, object> model && model.TryGetValue("id", out var id)) { _models.Items.Add(id.ToString()); _planModel.Items.Add(id.ToString()); _actModel.Items.Add(id.ToString()); _composerModel.Items.Add(id.ToString()); }
             if (_models.Items.Count > 0 && string.IsNullOrWhiteSpace(_models.Text)) _models.SelectedIndex = 0;
+            _composerModel.Text = _models.Text;
             SetStatus($"{_models.Items.Count} model bulundu.");
         }
         catch (Exception ex) { SetStatus("Model listesi alınamadı: " + ex.Message, true); }

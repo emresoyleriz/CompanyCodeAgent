@@ -123,7 +123,7 @@ internal static class VisualStudioContextProvider
         if (result.IndexOf("@problems", StringComparison.OrdinalIgnoreCase) >= 0)
             result = Regex.Replace(result, "@problems\\b", "Tanılar:\n" + CaptureDiagnostics((DTE)Package.GetGlobalService(typeof(DTE))), RegexOptions.IgnoreCase);
 
-        result = Regex.Replace(result, "@file:([^\\s]+)", match => ReadMentionedFile(match.Groups[1].Value), RegexOptions.IgnoreCase);
+        result = Regex.Replace(result, "@file:(?:\"([^\"]+)\"|([^\\s]+))", match => ReadMentionedFile(match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value), RegexOptions.IgnoreCase);
         result = Regex.Replace(result, "@folder:([^\\s]+)", match => ListMentionedFolder(match.Groups[1].Value), RegexOptions.IgnoreCase);
         return result;
     }
