@@ -34,14 +34,16 @@ public sealed class AgentToolWindowControl : UserControl
     private readonly TextBox _timeoutMinutes = new() { MinWidth = 42, Text = "10" };
     private readonly TextBox _maxTokens = new() { MinWidth = 58, Text = "50000" };
     private readonly TextBox _costPerMillion = new() { MinWidth = 58, Text = "0" };
-    private readonly ComboBox _mode = new() { MinWidth = 90, ItemsSource = new[] { "Plan", "Interactive", "Autopilot" }, SelectedIndex = 0 };
-    private readonly ComboBox _agentProfile = new() { MinWidth = 115, IsEditable = false };
-    private readonly ComboBox _approvalProfile = new() { MinWidth = 122, IsEditable = false };
+    private readonly ComboBox _mode = new() { MinWidth = 90, IsEditable = true, IsReadOnly = true, ItemsSource = new[] { "Plan", "Interactive", "Autopilot" }, SelectedIndex = 0 };
+    private readonly ComboBox _agentProfile = new() { MinWidth = 115, IsEditable = true, IsReadOnly = true };
+    private readonly ComboBox _approvalProfile = new() { MinWidth = 122, IsEditable = true, IsReadOnly = true };
     private readonly RichTextBox _conversation = new() { IsReadOnly = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, BorderThickness = new Thickness(0), Background = Brushes.Transparent };
     private readonly TextBox _input = new() { MinHeight = 92, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly Button _send = new() { Content = "Gönder", MinWidth = 95 };
     private readonly Button _retry = new() { Content = "Tekrarla", MinWidth = 75 };
     private readonly TextBlock _status = new() { Foreground = Brushes.Gray, Text = "Hazır" };
+    private readonly Border _settingsDrawer = new() { Visibility = Visibility.Collapsed };
+    private Button _settingsButton;
     private AgentSettings _settings;
     private CancellationTokenSource _cancellation;
     private string _lastPrompt = string.Empty;
@@ -63,24 +65,33 @@ public sealed class AgentToolWindowControl : UserControl
         _costPerMillion.Text = _settings.CostPerMillionTokensUsd.ToString("0.####", CultureInfo.InvariantCulture);
         _agentProfile.Items.Add("Genel");
         _agentProfile.SelectedIndex = 0;
-        RefreshAgentProfiles(VisualStudioContextProvider.GetWorkspacePath());
+        RefreshAgentProfiles(VisualStudioContextProvider.TryGetWorkspacePath(out var initialWorkspace) ? initialWorkspace : string.Empty);
         if (_agentProfile.Items.Cast<object>().OfType<string>().Any(profile => string.Equals(profile, _settings.AgentProfile, StringComparison.OrdinalIgnoreCase)))
             _agentProfile.SelectedItem = _settings.AgentProfile;
         _approvalProfile.Items.Add("Her işlemi sor");
         _approvalProfile.Items.Add("Doğrulama otomatik");
         _approvalProfile.SelectedItem = _approvalProfile.Items.Cast<object>().OfType<string>().FirstOrDefault(profile => string.Equals(profile, _settings.ApprovalProfile, StringComparison.OrdinalIgnoreCase)) ?? "Her işlemi sor";
         ApplyTheme();
-        var root = new Grid { Margin = new Thickness(10), Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)) };
+        var root = new Grid { Background = new SolidColorBrush(Color.FromRgb(24, 24, 24)) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var top = new StackPanel();
-        top.Children.Add(new TextBlock { Text = "COMPANY CODE AGENT", Foreground = new SolidColorBrush(Color.FromRgb(137, 180, 250)), FontWeight = FontWeights.SemiBold, FontSize = 15, Margin = new Thickness(0, 0, 0, 6) });
-        top.Children.Add(CreateHeader()); Grid.SetRow(top, 0); root.Children.Add(top);
-        Grid.SetRow(_conversation, 1); root.Children.Add(_conversation);
-        Grid.SetRow(_input, 2); root.Children.Add(_input);
-        var footer = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var header = CreateHeader();
+        Grid.SetRow(header, 0); root.Children.Add(header);
+        Grid.SetRow(_settingsDrawer, 1); root.Children.Add(_settingsDrawer);
+        _conversation.Margin = new Thickness(14, 12, 14, 0);
+        _conversation.Padding = new Thickness(6);
+        Grid.SetRow(_conversation, 2); root.Children.Add(_conversation);
+        var inputShell = new Border
+        {
+            Margin = new Thickness(14, 10, 14, 0), Padding = new Thickness(10, 6, 10, 4),
+            Background = new SolidColorBrush(Color.FromRgb(36, 36, 36)), BorderBrush = new SolidColorBrush(Color.FromRgb(78, 78, 78)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Child = _input
+        };
+        Grid.SetRow(inputShell, 3); root.Children.Add(inputShell);
+        var footer = new DockPanel { Margin = new Thickness(14, 5, 14, 12) };
         var cancel = StyledButton("Durdur", 70); cancel.Margin = new Thickness(0, 0, 8, 0);
         cancel.Click += (_, _) => _cancellation?.Cancel();
         _send.Click += SendClicked;
@@ -88,40 +99,71 @@ public sealed class AgentToolWindowControl : UserControl
         _input.PreviewKeyDown += InputKeyDown;
         DockPanel.SetDock(_send, Dock.Right); DockPanel.SetDock(_retry, Dock.Right); DockPanel.SetDock(cancel, Dock.Right);
         footer.Children.Add(_send); footer.Children.Add(_retry); footer.Children.Add(cancel); footer.Children.Add(_status);
-        Grid.SetRow(footer, 3); root.Children.Add(footer); Content = root;
-        Write("Hazır. Aktif dosya ve seçili kod bağlama otomatik eklenir. Plan modunda önce yaklaşımı üretin; Act modunda onaylı araçlarla uygulayın.\n\n", Brushes.LightSteelBlue);
+        Grid.SetRow(footer, 4); root.Children.Add(footer); Content = root;
+        Write("Hazır. Dosya ve seçili kod bağlamı otomatik eklenir. Ctrl+Enter ile gönderin.\n\n", Brushes.LightSteelBlue);
     }
 
     private FrameworkElement CreateHeader()
     {
-        var panel = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-        panel.Children.Add(Labeled("API", _endpoint)); panel.Children.Add(Labeled("Anahtar", _apiKey)); panel.Children.Add(Labeled("Model", _models)); panel.Children.Add(_separateModels); panel.Children.Add(Labeled("Plan modeli", _planModel)); panel.Children.Add(Labeled("Act modeli", _actModel)); panel.Children.Add(Labeled("Mod", _mode)); panel.Children.Add(Labeled("Ajan", _agentProfile)); panel.Children.Add(Labeled("Onay", _approvalProfile)); panel.Children.Add(Labeled("Adım", _maxSteps)); panel.Children.Add(Labeled("Dakika", _timeoutMinutes)); panel.Children.Add(Labeled("Token", _maxTokens)); panel.Children.Add(Labeled("USD / 1M", _costPerMillion));
+        var header = new DockPanel { Height = 46, LastChildFill = true, Background = new SolidColorBrush(Color.FromRgb(29, 29, 29)) };
+        var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+        title.Children.Add(new TextBlock { Text = "Company Code Agent", Foreground = new SolidColorBrush(Color.FromRgb(190, 210, 255)), FontWeight = FontWeights.SemiBold, FontSize = 14 });
+        title.Children.Add(new TextBlock { Text = "  Yerel coding agent", Foreground = new SolidColorBrush(Color.FromRgb(145, 145, 145)), FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        DockPanel.SetDock(title, Dock.Left); header.Children.Add(title);
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
+        var history = StyledButton("Geçmiş", 64); history.Margin = new Thickness(4); history.Click += HistoryClicked; actions.Children.Add(history);
+        var conversations = StyledButton("Sohbetler", 72); conversations.Margin = new Thickness(4); conversations.Click += ConversationsClicked; actions.Children.Add(conversations);
+        var newChat = StyledButton("+ Yeni sohbet", 92); newChat.Margin = new Thickness(4); newChat.Click += NewChatClicked; actions.Children.Add(newChat);
+        _settingsButton = StyledButton("⚙ Ayarlar", 82); _settingsButton.Margin = new Thickness(4); _settingsButton.Click += ToggleSettingsClicked; actions.Children.Add(_settingsButton);
+        DockPanel.SetDock(actions, Dock.Right); header.Children.Add(actions);
+
+        var drawerContent = new StackPanel();
+        drawerContent.Children.Add(new TextBlock { Text = "Bağlantı ve model ayarları", Foreground = Brushes.WhiteSmoke, FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 7) });
+        var connection = new WrapPanel();
+        connection.Children.Add(Labeled("API adresi", _endpoint)); connection.Children.Add(Labeled("API anahtarı", _apiKey)); connection.Children.Add(Labeled("Model", _models));
         var models = StyledButton("Modelleri yükle", 110); models.Margin = new Thickness(4);
-        models.Click += LoadModelsClicked; panel.Children.Add(models);
+        models.Click += LoadModelsClicked; connection.Children.Add(models);
         var lmStudio = StyledButton("LM Studio", 78); lmStudio.Margin = new Thickness(4);
-        lmStudio.Click += LmStudioClicked; panel.Children.Add(lmStudio);
+        lmStudio.Click += LmStudioClicked; connection.Children.Add(lmStudio);
         var testConnection = StyledButton("Bağlantıyı sınama", 112); testConnection.Margin = new Thickness(4);
-        testConnection.Click += TestConnectionClicked; panel.Children.Add(testConnection);
-        var history = StyledButton("Geçmiş", 70); history.Margin = new Thickness(4);
-        history.Click += HistoryClicked; panel.Children.Add(history);
-        var newChat = StyledButton("Yeni sohbet", 85); newChat.Margin = new Thickness(4);
-        newChat.Click += NewChatClicked; panel.Children.Add(newChat);
-        var conversations = StyledButton("Sohbetler", 75); conversations.Margin = new Thickness(4);
-        conversations.Click += ConversationsClicked; panel.Children.Add(conversations);
+        testConnection.Click += TestConnectionClicked; connection.Children.Add(testConnection);
+        drawerContent.Children.Add(connection);
+        drawerContent.Children.Add(new TextBlock { Text = "Agent davranışı", Foreground = Brushes.WhiteSmoke, FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 5) });
+        var agent = new WrapPanel();
+        agent.Children.Add(_separateModels); agent.Children.Add(Labeled("Plan modeli", _planModel)); agent.Children.Add(Labeled("Act modeli", _actModel)); agent.Children.Add(Labeled("Mod", _mode)); agent.Children.Add(Labeled("Ajan", _agentProfile)); agent.Children.Add(Labeled("Onay", _approvalProfile)); agent.Children.Add(Labeled("Maks. adım", _maxSteps)); agent.Children.Add(Labeled("Süre (dk)", _timeoutMinutes)); agent.Children.Add(Labeled("Token sınırı", _maxTokens)); agent.Children.Add(Labeled("USD / 1M", _costPerMillion));
+        drawerContent.Children.Add(agent);
+        var utilities = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         var applyPlan = StyledButton("Planı Act'e aktar", 112); applyPlan.Margin = new Thickness(4);
-        applyPlan.Click += TransferPlanToActClicked; panel.Children.Add(applyPlan);
+        applyPlan.Click += TransferPlanToActClicked; utilities.Children.Add(applyPlan);
         var exportChat = StyledButton("Dışa aktar", 82); exportChat.Margin = new Thickness(4);
-        exportChat.Click += ExportChatClicked; panel.Children.Add(exportChat);
+        exportChat.Click += ExportChatClicked; utilities.Children.Add(exportChat);
         var tasks = StyledButton("Görevler", 70); tasks.Margin = new Thickness(4);
-        tasks.Click += TasksClicked; panel.Children.Add(tasks);
+        tasks.Click += TasksClicked; utilities.Children.Add(tasks);
         var checkpoints = StyledButton("Checkpoint'ler", 95); checkpoints.Margin = new Thickness(4);
-        checkpoints.Click += CheckpointsClicked; panel.Children.Add(checkpoints);
+        checkpoints.Click += CheckpointsClicked; utilities.Children.Add(checkpoints);
         var restore = StyledButton("Geri al…", 72); restore.Margin = new Thickness(4);
-        restore.Click += RestoreCheckpointClicked; panel.Children.Add(restore);
+        restore.Click += RestoreCheckpointClicked; utilities.Children.Add(restore);
         var audit = StyledButton("Audit", 60); audit.Margin = new Thickness(4);
-        audit.Click += AuditClicked; panel.Children.Add(audit);
+        audit.Click += AuditClicked; utilities.Children.Add(audit);
         var usage = StyledButton("Kullanım", 72); usage.Margin = new Thickness(4);
-        usage.Click += UsageClicked; panel.Children.Add(usage); return panel;
+        usage.Click += UsageClicked; utilities.Children.Add(usage);
+        drawerContent.Children.Add(utilities);
+        _settingsDrawer.Margin = new Thickness(14, 0, 14, 0);
+        _settingsDrawer.Padding = new Thickness(12);
+        _settingsDrawer.Background = new SolidColorBrush(Color.FromRgb(35, 35, 35));
+        _settingsDrawer.BorderBrush = new SolidColorBrush(Color.FromRgb(70, 70, 70));
+        _settingsDrawer.BorderThickness = new Thickness(1);
+        _settingsDrawer.CornerRadius = new CornerRadius(7);
+        _settingsDrawer.Child = drawerContent;
+        return header;
+    }
+
+    private void ToggleSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        var open = _settingsDrawer.Visibility != Visibility.Visible;
+        _settingsDrawer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        _settingsButton.Content = open ? "Ayarları kapat" : "⚙ Ayarlar";
     }
 
     private void RefreshAgentProfiles(string workspacePath)
@@ -172,7 +214,7 @@ public sealed class AgentToolWindowControl : UserControl
 
     private void ApplyTheme()
     {
-        var background = new SolidColorBrush(Color.FromRgb(38, 38, 45));
+        var background = new SolidColorBrush(Color.FromRgb(38, 38, 38));
         var foreground = Brushes.WhiteSmoke;
         foreach (var control in new Control[] { _endpoint, _apiKey, _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile, _maxSteps, _timeoutMinutes, _maxTokens, _costPerMillion, _input })
         {
@@ -181,7 +223,14 @@ public sealed class AgentToolWindowControl : UserControl
             control.BorderBrush = new SolidColorBrush(Color.FromRgb(80, 85, 100));
             control.Margin = new Thickness(0, 2, 0, 0);
         }
+        _input.Background = Brushes.Transparent;
+        _input.BorderThickness = new Thickness(0);
+        _input.Foreground = Brushes.WhiteSmoke;
+        _input.MinHeight = 72;
+        _input.ToolTip = "Mesajınızı yazın — Ctrl+Enter ile gönderin";
+        foreach (var comboBox in new[] { _models, _planModel, _actModel, _mode, _agentProfile, _approvalProfile }) ApplyComboBoxTheme(comboBox);
         _conversation.Foreground = Brushes.WhiteSmoke;
+        _conversation.FontSize = 13;
         _send.Background = new SolidColorBrush(Color.FromRgb(79, 70, 229));
         _send.Foreground = Brushes.White;
         _send.BorderBrush = Brushes.Transparent;
@@ -190,9 +239,32 @@ public sealed class AgentToolWindowControl : UserControl
         _retry.BorderBrush = new SolidColorBrush(Color.FromRgb(90, 95, 110));
     }
 
+    private static void ApplyComboBoxTheme(ComboBox comboBox)
+    {
+        var dark = new SolidColorBrush(Color.FromRgb(38, 38, 38));
+        var border = new SolidColorBrush(Color.FromRgb(80, 85, 100));
+        var itemStyle = new Style(typeof(ComboBoxItem));
+        itemStyle.Setters.Add(new Setter(Control.BackgroundProperty, dark));
+        itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.WhiteSmoke));
+        itemStyle.Setters.Add(new Setter(Control.BorderBrushProperty, border));
+        itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(7, 3, 7, 3)));
+        var highlighted = new Trigger { Property = ComboBoxItem.IsHighlightedProperty, Value = true };
+        highlighted.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromRgb(79, 70, 229))));
+        highlighted.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+        itemStyle.Triggers.Add(highlighted);
+        comboBox.ItemContainerStyle = itemStyle;
+
+        var editorStyle = new Style(typeof(TextBox));
+        editorStyle.Setters.Add(new Setter(Control.BackgroundProperty, dark));
+        editorStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.WhiteSmoke));
+        editorStyle.Setters.Add(new Setter(Control.BorderBrushProperty, border));
+        editorStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4, 1, 4, 1)));
+        comboBox.Resources[typeof(TextBox)] = editorStyle;
+    }
+
     private static Button StyledButton(string content, double minWidth)
     {
-        return new Button { Content = content, MinWidth = minWidth, Background = new SolidColorBrush(Color.FromRgb(58, 62, 75)), Foreground = Brushes.WhiteSmoke, BorderBrush = new SolidColorBrush(Color.FromRgb(90, 95, 110)), Padding = new Thickness(8, 3, 8, 3) };
+        return new Button { Content = content, MinWidth = minWidth, Background = new SolidColorBrush(Color.FromRgb(48, 48, 48)), Foreground = Brushes.WhiteSmoke, BorderBrush = new SolidColorBrush(Color.FromRgb(82, 82, 82)), Padding = new Thickness(8, 3, 8, 3) };
     }
 
     private async Task LoadModelsAsync()
@@ -936,7 +1008,12 @@ public sealed class AgentToolWindowControl : UserControl
         selection?.GotoLine(line, true);
     }
 
-    private void Write(string value, Brush color) { _conversation.Foreground = color; _conversation.AppendText(value); _conversation.ScrollToEnd(); }
+    private void Write(string value, Brush color)
+    {
+        var range = new TextRange(_conversation.Document.ContentEnd, _conversation.Document.ContentEnd) { Text = value };
+        range.ApplyPropertyValue(TextElement.ForegroundProperty, color);
+        _conversation.ScrollToEnd();
+    }
     private void SetStatus(string value, bool error = false) { _status.Text = value; _status.Foreground = error ? Brushes.OrangeRed : Brushes.Gray; }
 
     private sealed class StreamedResponse(string content, int totalTokens) { public string Content { get; } = content; public int TotalTokens { get; } = totalTokens; }

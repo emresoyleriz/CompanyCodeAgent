@@ -13,10 +13,32 @@ internal static class VisualStudioContextProvider
     public static string GetWorkspacePath()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
+        if (TryGetWorkspacePath(out var workspacePath)) return workspacePath;
+        throw new InvalidOperationException("Açık bir solution veya proje dosyası bulunamadı. Bir solution açın ya da önce bir dosya açın.");
+    }
+
+    public static bool TryGetWorkspacePath(out string workspacePath)
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
         var dte = Package.GetGlobalService(typeof(DTE)) as DTE;
         var solution = dte?.Solution?.FullName;
-        if (string.IsNullOrWhiteSpace(solution)) throw new InvalidOperationException("Açık bir solution bulunamadı.");
-        return System.IO.Path.GetDirectoryName(solution)!;
+        var solutionDirectory = string.IsNullOrWhiteSpace(solution) ? null : Path.GetDirectoryName(solution);
+        if (!string.IsNullOrWhiteSpace(solutionDirectory) && Directory.Exists(solutionDirectory))
+        {
+            workspacePath = solutionDirectory;
+            return true;
+        }
+
+        var activeDocument = dte?.ActiveDocument?.FullName;
+        var documentDirectory = string.IsNullOrWhiteSpace(activeDocument) ? null : Path.GetDirectoryName(activeDocument);
+        if (!string.IsNullOrWhiteSpace(documentDirectory) && Directory.Exists(documentDirectory))
+        {
+            workspacePath = documentDirectory;
+            return true;
+        }
+
+        workspacePath = string.Empty;
+        return false;
     }
 
     public static string LoadProjectRules()
